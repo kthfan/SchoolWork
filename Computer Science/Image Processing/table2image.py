@@ -236,6 +236,7 @@ def from_matrix(mat, transp=False):
             table.put_item(i+1, j+1, mat[i, j])
     return table
 
+
 def validation_matrix(true_y, pred_y, threshold=0.5):
     pred_y = pred_y.ravel()
     if threshold is not None: pred_y = pred_y > threshold
@@ -246,38 +247,39 @@ def validation_matrix(true_y, pred_y, threshold=0.5):
     FP = np.count_nonzero((~true_y) & pred_y)
     FN = np.count_nonzero(true_y & (~pred_y))
 
-    N = true_y.size
-    pred_P_num = TP + FP
-    pred_N_num = N - pred_P_num
-    true_P_num = TP + FN
-    true_N_num = N - true_P_num
+    T = true_y.size
+    P = TP + FN
+    N = TN + FP
     
     entry2 = lambda a,b: from_matrix(np.array([[a], [b]], dtype=object), True)
     entry3 = lambda a,b,c: from_matrix(np.array([[a], [b], [c]], dtype=object), True)
+    f2s = lambda f: str(round(f, 2))
     fracs = 50
     
     cm = np.array([
-        [entry3('True Positive\n(TP)', round(TP/N, 2), ' '), entry3('False Positive\n(FP)', round(FP/N, 2), 'Type I error')],
-        [entry3('False Negative\n(FN)', round(FN/N, 2), 'Type II error'), entry3('True Negative\n(TN)', round(TN/N, 2), ' ')]
+        [entry3('True Positive\n(TP)', '='+f2s(TP/T), ' '), entry3('False Positive\n(FP)', '='+f2s(FP/T), 'Type I error')],
+        [entry3('False Negative\n(FN)', '='+f2s(FN/T), 'Type II error'), entry3('True Negative\n(TN)', '='+f2s(TN/T), ' ')]
     ]) 
-    cm_ylabel = np.array([['Positive'], ['Negative']])
-    cm_xlabel = np.array([['Positive', 'Negative']])
+    cm_ylabel = np.array([['Positive\n= '+f2s((TP+FN)/T)], ['Negative\n= '+f2s((TN+FP)/T)]])
+    cm_xlabel = np.array([['Positive (P)\n= '+f2s(P/T), 'Negative (N)\n= '+f2s(N/T)]])
     cm, cm_ylabel, cm_xlabel = from_matrix(cm), from_matrix(cm_ylabel), from_matrix(cm_xlabel)
     rt = np.array([
-        [entry2('Positive predictive value\n(PPV); Precision', latex2png(r'\frac{TP}{TP+FP} = ' + str(TP / (TP + FP)), fracs)/255), 
-         entry2('False discovery rate\n(FDR)', latex2png(r'\frac{FP}{TP+FP} = ' + str(FP / (TP + FP)), fracs)/255)],
-        [entry2('False omission rate\n(FOR)', latex2png(r'\frac{FN}{TN+FN} = ' + str(FN / (TN + FN)), fracs)/255), 
-         entry2('Negative predictive value\n(NPV)', latex2png(r'\frac{TN}{TN+FN} = ' + str(TN / (TN + FN)), fracs)/255)]
+        [entry2('Positive predictive value\n(PPV); Precision', latex2png(r'\frac{TP}{TP+FP} = ' + f2s(TP / (TP + FP)), fracs)/255), 
+         entry2('False discovery rate\n(FDR)', latex2png(r'\frac{FP}{TN+FP} = ' + f2s(FP / (TN + FP)), fracs)/255)],
+        [entry2('False omission rate\n(FOR)', latex2png(r'\frac{FN}{TP+FN} = ' + f2s(FN / (TP + FN)), fracs)/255), 
+         entry2('Negative predictive value\n(NPV)', latex2png(r'\frac{TN}{TP+FN} = ' + f2s(TN / (TP + FN)), fracs)/255)]
     ])
     lb = np.array([
-        ['TPR', 'FPR'],
-        ['FNR', 'TNR']
+        [entry2('True Positive Rate (TPR)\nSensitivity, Recall', latex2png(r'\frac{TP}{TP+FN} = ' + f2s(TP / (TP + FN)), fracs)/255), 
+         entry2('False Positive Rate (FPR)\nFall-out', latex2png(r'\frac{TP}{TP+FN} = ' + f2s(TP / (TP + FN)), fracs)/255)],
+        [entry2('False Negative Rate (FNR)\nMiss rate', latex2png(r'\frac{TP}{TP+FN} = ' + f2s(TP / (TP + FN)), fracs)/255), 
+         entry2('True Negative Rate (TNR)\nSpecificity', latex2png(r'\frac{TP}{TP+FN} = ' + f2s(TP / (TP + FN)), fracs)/255)]
     ])
-    acc = np.array([[' '], ['Accuracy']])
+    acc = np.array([[' '], ['Accuracy\n= ' + f2s((TP+TN)/T)]])
     rt, lb, acc = from_matrix(rt), from_matrix(lb), from_matrix(acc)
     table_mat = np.array([
         ['', '', 'True Condition', FlexLineTable(1, 2)],
-        ['', 'Total\nPopulation\n', cm_xlabel, FlexLineTable(1, 2)],
+        ['', 'Total (T)\n= '+f2s(T), cm_xlabel, FlexLineTable(1, 2)],
         ['Predicted\noutcome', cm_ylabel, cm, rt],
         [FlexLineTable(2, 1), acc, lb, '']
     ], dtype=object)

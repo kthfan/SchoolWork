@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import requests
 
 class Table:
     def __init__(self, line_width=1, border_color=(0,0,0), img_shape=(256, 256), font_scale=0.5, line_height=0.5, align='center'):
@@ -28,7 +29,13 @@ class Table:
         height, width = img.shape[0], img.shape[1]
         center_y = y1 + (y2 - y1 - height) // 2
         center_x = x1 + (x2 - x1 - width) // 2
-        input_img[center_y:center_y+height, center_x:center_x+width] = img
+        alpha = 1
+        if img.shape[-1] == 4:
+            alpha = img[:, :, 3:4]
+            img = img[:, :, 0:3]
+        
+        input_img[center_y:center_y+height, center_x:center_x+width] = alpha*img + (1-alpha)*input_img[center_y:center_y+height, center_x:center_x+width]
+        Table.debug = [alpha, img, input_img[center_y:center_y+height, center_x:center_x+width]]
         return input_img
     def draw_text(self, line_text, input_img, y1, y2, x1, x2, font_scale, line_height, align):
         line_text = line_text.split('\n')
@@ -128,7 +135,12 @@ class FlexTable(Table):
     def _compute_dim(self, elem):
         if isinstance(elem, Table):
             return elem.get_tabel_dim()
-        return self._compute_text_dim(elem)
+        elif isinstance(elem, np.ndarray):
+            return self._compute_image_dim(elem)
+        return self._compute_text_dim(str(elem))
+    def _compute_image_dim(self, img):
+        tw, th = cv2.getTextSize(text='W', fontFace=cv2.FONT_HERSHEY_COMPLEX, fontScale=self.font_scale, thickness=1)[0]
+        return img.shape[0] // th, img.shape[1] // tw
     def _compute_text_dim(self, text):
         if text == '': return (0, 0)
         h = text.count('\n') + 1
@@ -170,7 +182,7 @@ class FlexLineTable(FlexTable):
         row_size_list, col_size_list = np.concatenate([np.zeros(1), row_size_list.cumsum()]), np.concatenate([np.zeros(1), col_size_list.cumsum()])
         row_size_list, col_size_list = row_size_list.astype(np.int32), col_size_list.astype(np.int32)
         border_color = np.array(self.border_color)
-
+        
         for y in row_size_list: input_img[y:y+line_width, :, :] = border_color
         for x in col_size_list: input_img[:, x:x+line_width, :] = border_color
         
@@ -179,6 +191,7 @@ class FlexLineTable(FlexTable):
             y1, y2 = row_size_list[y-1], row_size_list[y]+line_width
             x1, x2 = col_size_list[x-1], col_size_list[x]+line_width
             self.draw_entry(item, input_img, y1, y2, x1, x2)
+            
         return input_img
 
 class FlexTransparentTable(FlexTable):
@@ -201,9 +214,72 @@ class FlexTransparentTable(FlexTable):
             self.draw_entry(item, input_img, y1, y2, x1, x2)
         return input_img
     
-def from_matrix(mat):
-    table = FlexLineTable(*mat.shape)
+def latex2png(latex, height=None, width=None):
+    url = r'https://latex.codecogs.com/png.latex?\dpi{300} \huge ' + latex
+    session = requests.Session()
+    retry = requests.packages.urllib3.util.retry.Retry(connect=3, backoff_factor=0.5)
+    adapter = requests.adapters.HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter); session.mount('https://', adapter)
+    req = session.get(url)
+    img = cv2.imdecode(np.asarray(bytearray(req.content), dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+    
+    M, N = img.shape[0], img.shape[1]
+    if height is None and width is None: return img
+    elif height is None: height = M * width // N
+    elif width is None: width = N * height // M
+    img = cv2.resize(img, (width, height))
+    return img
+def from_matrix(mat, transp=False):
+    table = FlexTransparentTable(*mat.shape) if transp else FlexLineTable(*mat.shape)
     for i in range(mat.shape[0]):
         for j in range(mat.shape[1]):
             table.put_item(i+1, j+1, mat[i, j])
+    return table
+
+def validation_matrix(true_y, pred_y, threshold=0.5):
+    pred_y = pred_y.ravel()
+    if threshold is not None: pred_y = pred_y > threshold
+    true_y = np.array(true_y).astype(bool).ravel()
+    
+    TP = np.count_nonzero(true_y & pred_y)
+    TN = np.count_nonzero((~true_y) & (~pred_y))
+    FP = np.count_nonzero((~true_y) & pred_y)
+    FN = np.count_nonzero(true_y & (~pred_y))
+
+    N = true_y.size
+    pred_P_num = TP + FP
+    pred_N_num = N - pred_P_num
+    true_P_num = TP + FN
+    true_N_num = N - true_P_num
+    
+    entry2 = lambda a,b: from_matrix(np.array([[a], [b]], dtype=object), True)
+    entry3 = lambda a,b,c: from_matrix(np.array([[a], [b], [c]], dtype=object), True)
+    fracs = 50
+    
+    cm = np.array([
+        [entry3('True Positive\n(TP)', round(TP/N, 2), ' '), entry3('False Positive\n(FP)', round(FP/N, 2), 'Type I error')],
+        [entry3('False Negative\n(FN)', round(FN/N, 2), 'Type II error'), entry3('True Negative\n(TN)', round(TN/N, 2), ' ')]
+    ]) 
+    cm_ylabel = np.array([['Positive'], ['Negative']])
+    cm_xlabel = np.array([['Positive', 'Negative']])
+    cm, cm_ylabel, cm_xlabel = from_matrix(cm), from_matrix(cm_ylabel), from_matrix(cm_xlabel)
+    rt = np.array([
+        [entry2('Positive predictive value\n(PPV); Precision', latex2png(r'\frac{TP}{TP+FP} = ' + str(TP / (TP + FP)), fracs)/255), 
+         entry2('False discovery rate\n(FDR)', latex2png(r'\frac{FP}{TP+FP} = ' + str(FP / (TP + FP)), fracs)/255)],
+        [entry2('False omission rate\n(FOR)', latex2png(r'\frac{FN}{TN+FN} = ' + str(FN / (TN + FN)), fracs)/255), 
+         entry2('Negative predictive value\n(NPV)', latex2png(r'\frac{TN}{TN+FN} = ' + str(TN / (TN + FN)), fracs)/255)]
+    ])
+    lb = np.array([
+        ['TPR', 'FPR'],
+        ['FNR', 'TNR']
+    ])
+    acc = np.array([[' '], ['Accuracy']])
+    rt, lb, acc = from_matrix(rt), from_matrix(lb), from_matrix(acc)
+    table_mat = np.array([
+        ['', '', 'True Condition', FlexLineTable(1, 2)],
+        ['', 'Total\nPopulation\n', cm_xlabel, FlexLineTable(1, 2)],
+        ['Predicted\noutcome', cm_ylabel, cm, rt],
+        [FlexLineTable(2, 1), acc, lb, '']
+    ], dtype=object)
+    table = from_matrix(table_mat)
     return table

@@ -3,7 +3,7 @@ import numpy as np
 import requests
 
 class Table:
-    def __init__(self, line_width=1, border_color=(0,0,0), img_shape=(256, 256), font_scale=0.5, line_height=0.5, align='center'):
+    def __init__(self, line_width=1, border_color=(0,0,0), img_shape=(256, 256), font_scale=0.5, line_height=0.8, align='center'):
         self.line_width = line_width
         self.border_color = border_color
         self.table_entries = dict()
@@ -33,7 +33,7 @@ class Table:
         if img.shape[-1] == 4:
             alpha = img[:, :, 3:4]
             img = img[:, :, 0:3]
-        
+
         input_img[center_y:center_y+height, center_x:center_x+width] = alpha*img + (1-alpha)*input_img[center_y:center_y+height, center_x:center_x+width]
         Table.debug = [alpha, img, input_img[center_y:center_y+height, center_x:center_x+width]]
         return input_img
@@ -51,7 +51,10 @@ class Table:
         center_y = y2 - (y2 - y1 + int(height)) // 2
         dim_list[1] += center_y
         for line, text in enumerate(line_text):
-            input_img = cv2.putText(input_img, text, (dim_list[0, line], dim_list[1, line]), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 0), 1)
+            left = None
+            if align=='center': left = dim_list[0, line]
+            elif align=='left': left = dim_list[0].min()
+            input_img = cv2.putText(input_img, text, (left, dim_list[1, line]), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 0), 1)
             
 class LineTable(Table):
     def __init__(self, row_size_list=[1], col_size_list=[1], **kwds):
@@ -236,8 +239,7 @@ def from_matrix(mat, transp=False):
             table.put_item(i+1, j+1, mat[i, j])
     return table
 
-
-def validation_matrix(true_y, pred_y, threshold=0.5):
+def validation_matrix(true_y, pred_y, threshold=0.5, beta=1):
     pred_y = pred_y.ravel()
     if threshold is not None: pred_y = pred_y > threshold
     true_y = np.array(true_y).astype(bool).ravel()
@@ -275,13 +277,23 @@ def validation_matrix(true_y, pred_y, threshold=0.5):
         [entry2('False Negative Rate (FNR)\nMiss rate', latex2png(r'\frac{TP}{TP+FN} = ' + f2s(TP / (TP + FN)), fracs)/255), 
          entry2('True Negative Rate (TNR)\nSpecificity', latex2png(r'\frac{TP}{TP+FN} = ' + f2s(TP / (TP + FN)), fracs)/255)]
     ])
-    acc = np.array([[' '], ['Accuracy\n= ' + f2s((TP+TN)/T)]])
+    acc = np.array([['Accuracy = ' + f2s((TP+TN)/T)]])
     rt, lb, acc = from_matrix(rt), from_matrix(lb), from_matrix(acc)
+    ext = FlexTransparentTable(1, 1, line_height=0.8, align='left')
+    ext.put_item(1, 1, latex2png(
+        r'\begin{align*}'+\
+        r'& \text{Positive likelihood ratio (LR+)} = ' + f2s(TP/FP*(FP+TN)/(TP+FN)) + r'\\'+\
+        r'& \text{Negative likelihood ratio (LR-)} = ' + f2s(FN/TN*(FP+TN)/(TP+FN)) + r'\\'+\
+        r'& \text{Diagnostic odds ratio (DOR)} = ' + f2s(TP*TN/(FP*FN)) + r'\\'+\
+        r'& F_{'+str(beta)+r'}\text{-score} = ' + f2s(TP / ((1+beta**2)*TP + beta**2*FN + FP)) + r'\\'+\
+        r'& \text{G-measure} = ' + f2s(TP / ((TP+FP)*(TP+FN))**0.5) + r'\\'+\
+        r'\end{align*}', 200)/255)
+    
     table_mat = np.array([
         ['', '', 'True Condition', FlexLineTable(1, 2)],
-        ['', 'Total (T)\n= '+f2s(T), cm_xlabel, FlexLineTable(1, 2)],
+        ['', 'Total (T)\n= '+f2s(T), cm_xlabel, acc],
         ['Predicted\noutcome', cm_ylabel, cm, rt],
-        [FlexLineTable(2, 1), acc, lb, '']
+        [FlexLineTable(2, 1), '', lb, ext]
     ], dtype=object)
     table = from_matrix(table_mat)
     return table

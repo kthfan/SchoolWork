@@ -2,13 +2,14 @@ import cv2
 import numpy as np
 
 class Table:
-    def __init__(self, line_width=1, border_color=(0,0,0), img_shape=(256, 256)):
+    def __init__(self, line_width=1, border_color=(0,0,0), img_shape=(256, 256), font_scale=0.5, line_height=0.5, align='center'):
         self.line_width = line_width
         self.border_color = border_color
         self.table_entries = dict()
         self.img_shape = img_shape
-    def draw_text(input_img=None):
-        return
+        self.line_height = line_height
+        self.font_scale = font_scale
+        self.align = align
     def put_item(self, row, col, item):
         self.table_entries["{}:{}".format(row, col)] = item
     def get_item(self, row, col):
@@ -21,7 +22,7 @@ class Table:
         elif isinstance(item, np.ndarray):
             self.draw_image(item, input_img, y1, y2, x1, x2)
         else:
-            self.draw_text(str(item), input_img, y1, y2, x1, x2)
+            self.draw_text(str(item), input_img, y1, y2, x1, x2, self.font_scale, self.line_height, self.align)
         return input_img
     def draw_image(self, img, input_img, y1, y2, x1, x2):
         height, width = img.shape[0], img.shape[1]
@@ -29,17 +30,18 @@ class Table:
         center_x = x1 + (x2 - x1 - width) // 2
         input_img[center_y:center_y+height, center_x:center_x+width] = img
         return input_img
-    def draw_text(self, line_text, input_img, y1, y2, x1, x2):
+    def draw_text(self, line_text, input_img, y1, y2, x1, x2, font_scale, line_height, align):
         line_text = line_text.split('\n')
         width, height = 0, 0
         dim_list = np.zeros((2, len(line_text)), dtype=np.int32)
         for line, text in enumerate(line_text):
-            tw, th = cv2.getTextSize(text=text, fontFace=cv2.FONT_HERSHEY_COMPLEX, fontScale=0.5, thickness=1)[0]
+            tw, th = cv2.getTextSize(text=text, fontFace=cv2.FONT_HERSHEY_COMPLEX, fontScale=font_scale, thickness=1)[0]
             height += th;
-            dim_list[1, line] = height;
+            dim_list[1, line] = int(height);
             left = x1 + (x2 - x1 - tw) // 2
             dim_list[0, line] = left; 
-        center_y = y2 - (y2 - y1 + height) // 2
+            height += line_height*th;
+        center_y = y2 - (y2 - y1 + int(height)) // 2
         dim_list[1] += center_y
         for line, text in enumerate(line_text):
             input_img = cv2.putText(input_img, text, (dim_list[0, line], dim_list[1, line]), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 0), 1)
@@ -82,7 +84,6 @@ class LineTable(Table):
         M, N = input_img.shape[0], input_img.shape[1]
         row_size_list, col_size_list, line_width, border_color = self.row_size_list, self.col_size_list, self.line_width, self.border_color
         
-#         line_width = int(line_width * (M*N)**0.5)
         row_size_list, col_size_list = np.array(row_size_list), np.array(col_size_list)
         row_size_list, col_size_list = row_size_list*(M-line_width) / row_size_list.sum(), col_size_list*(N-line_width) / col_size_list.sum()
         row_size_list, col_size_list = np.concatenate([np.zeros(1), row_size_list.cumsum()]), np.concatenate([np.zeros(1), col_size_list.cumsum()])
@@ -156,7 +157,8 @@ class FlexTable(Table):
         h, w = result[0].max(axis=1).sum(), result[1].max(axis=0).sum()
         return (h, w)
     
-    
+
+class FlexLineTable(FlexTable):
     def draw_table(self, input_img=None):
         if input_img is None: input_img = np.ones((*self.img_shape, 3), dtype=np.float32)
         M, N = input_img.shape[0], input_img.shape[1]
@@ -178,10 +180,30 @@ class FlexTable(Table):
             x1, x2 = col_size_list[x-1], col_size_list[x]+line_width
             self.draw_entry(item, input_img, y1, y2, x1, x2)
         return input_img
+
+class FlexTransparentTable(FlexTable):
+    def draw_table(self, input_img=None):
+        if input_img is None: input_img = np.ones((*self.img_shape, 3), dtype=np.float32)
+        M, N = input_img.shape[0], input_img.shape[1]
+        line_width = self.line_width
+        
+        row_size_list = np.array([self.get_tabel_dim(row=row)[0] for row in range(1, self.rows+1)]).astype(np.int32)
+        col_size_list = np.array([self.get_tabel_dim(col=col)[1] for col in range(1, self.cols+1)]).astype(np.int32)
+        row_size_list, col_size_list = row_size_list*(M-line_width) / row_size_list.sum(), col_size_list*(N-line_width) / col_size_list.sum()
+        row_size_list, col_size_list = np.concatenate([np.zeros(1), row_size_list.cumsum()]), np.concatenate([np.zeros(1), col_size_list.cumsum()])
+        row_size_list, col_size_list = row_size_list.astype(np.int32), col_size_list.astype(np.int32)
+        border_color = np.array(self.border_color)
+
+        for yx, item in self.table_entries.items():
+            [y, x] = [int(i) for i in yx.split(':')]
+            y1, y2 = row_size_list[y-1], row_size_list[y]+line_width
+            x1, x2 = col_size_list[x-1], col_size_list[x]+line_width
+            self.draw_entry(item, input_img, y1, y2, x1, x2)
+        return input_img
     
 def from_matrix(mat):
-    table = FlexTable(*mat.shape)
+    table = FlexLineTable(*mat.shape)
     for i in range(mat.shape[0]):
         for j in range(mat.shape[1]):
-            table.put_text(i, j, mat[i, j])
+            table.put_item(i+1, j+1, mat[i, j])
     return table

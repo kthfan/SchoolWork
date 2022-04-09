@@ -267,15 +267,15 @@ def validation_matrix(true_y, pred_y, threshold=0.5, beta=1):
     cm, cm_ylabel, cm_xlabel = from_matrix(cm), from_matrix(cm_ylabel), from_matrix(cm_xlabel)
     rt = np.array([
         [entry2('Positive predictive value\n(PPV); Precision', latex2png(r'\frac{TP}{TP+FP} = ' + f2s(TP / (TP + FP)), fracs)/255), 
-         entry2('False discovery rate\n(FDR)', latex2png(r'\frac{FP}{TN+FP} = ' + f2s(FP / (TN + FP)), fracs)/255)],
-        [entry2('False omission rate\n(FOR)', latex2png(r'\frac{FN}{TP+FN} = ' + f2s(FN / (TP + FN)), fracs)/255), 
-         entry2('Negative predictive value\n(NPV)', latex2png(r'\frac{TN}{TP+FN} = ' + f2s(TN / (TP + FN)), fracs)/255)]
+         entry2('False discovery rate\n(FDR)', latex2png(r'\frac{FP}{TP+FP} = ' + f2s(FP / (TP + FP)), fracs)/255)],
+        [entry2('False omission rate\n(FOR)', latex2png(r'\frac{FN}{TN+FN} = ' + f2s(FN / (TN + FN)), fracs)/255), 
+         entry2('Negative predictive value\n(NPV)', latex2png(r'\frac{TN}{TN+FN} = ' + f2s(TN / (TN + FN)), fracs)/255)]
     ])
     lb = np.array([
         [entry2('True Positive Rate (TPR)\nSensitivity, Recall', latex2png(r'\frac{TP}{TP+FN} = ' + f2s(TP / (TP + FN)), fracs)/255), 
-         entry2('False Positive Rate (FPR)\nFall-out', latex2png(r'\frac{TP}{TP+FN} = ' + f2s(TP / (TP + FN)), fracs)/255)],
-        [entry2('False Negative Rate (FNR)\nMiss rate', latex2png(r'\frac{TP}{TP+FN} = ' + f2s(TP / (TP + FN)), fracs)/255), 
-         entry2('True Negative Rate (TNR)\nSpecificity', latex2png(r'\frac{TP}{TP+FN} = ' + f2s(TP / (TP + FN)), fracs)/255)]
+         entry2('False Positive Rate (FPR)\nFall-out', latex2png(r'\frac{FP}{FP+TN} = ' + f2s(FP / (FP + TN)), fracs)/255)],
+        [entry2('False Negative Rate (FNR)\nMiss rate', latex2png(r'\frac{FN}{TP+FN} = ' + f2s(FN / (TP + FN)), fracs)/255), 
+         entry2('True Negative Rate (TNR)\nSpecificity', latex2png(r'\frac{TN}{FP+TN} = ' + f2s(TN / (FP + TN)), fracs)/255)]
     ])
     acc = np.array([['Accuracy = ' + f2s((TP+TN)/T)]])
     rt, lb, acc = from_matrix(rt), from_matrix(lb), from_matrix(acc)
@@ -287,11 +287,12 @@ def validation_matrix(true_y, pred_y, threshold=0.5, beta=1):
         r'& \text{Diagnostic odds ratio (DOR)} = ' + f2s(TP*TN/(FP*FN)) + r'\\'+\
         r'& F_{'+str(beta)+r'}\text{-score} = ' + f2s(TP / ((1+beta**2)*TP + beta**2*FN + FP)) + r'\\'+\
         r'& \text{G-measure} = ' + f2s(TP / ((TP+FP)*(TP+FN))**0.5) + r'\\'+\
+        r'& \text{Cohen\'s kappa} = ' + f2s(2*(TP*TN-FN*FP) / ((TP+FP)*(FP+TN)+(TP+FN)*(FN+TN))) + r'\\'+\
         r'\end{align*}', 200)/255)
     
     table_mat = np.array([
         ['', '', 'True Condition', FlexLineTable(1, 2)],
-        ['', 'Total (T)\n= '+f2s(T), cm_xlabel, acc],
+        ['', latex2png(r'\bold Total\\'+ f2s(T/10**np.floor(np.log10(T))) + r'\times 10^{' + str(int(np.floor(np.log10(T)))) + r'}', 35)/255, cm_xlabel, acc],
         ['Predicted\noutcome', cm_ylabel, cm, rt],
         [FlexLineTable(2, 1), '', lb, ext]
     ], dtype=object)

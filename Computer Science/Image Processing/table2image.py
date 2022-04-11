@@ -253,6 +253,22 @@ def validation_matrix(true_y, pred_y, threshold=0.5, beta=1):
     T = true_y.size
     P = TP + FN
     N = TN + FP
+    PPV = TP / (TP + FP) if TP + FP != 0 else 0
+    FDR = FP / (TP + FP) if TP + FP != 0 else 0
+    FOR = FN / (TN + FN) if TN + FN != 0 else 0
+    NPV = TN / (TN + FN) if TN + FN != 0 else 0
+    
+    TPR = TP / (TP + FN) if TP + FN != 0 else 0
+    FPR = FP / (FP + TN) if FP + TN != 0 else 0
+    FNR = FN / (TP + FN) if TP + FN != 0 else 0
+    TNR = TN / (FP + TN) if FP + TN != 0 else 0
+    
+    LRp = TPR/FPR if FPR != 0 else 0
+    LRn = FNR/TNR if TNR != 0 else 0
+    DOR = LRp/LRn if LRn != 0 else 0
+    f1_score = TP / ((1+beta**2)*TP + beta**2*FN + FP) if (1+beta**2)*TP + beta**2*FN + FP != 0 else 0
+    
+    
     
     entry2 = lambda a,b: from_matrix(np.array([[a], [b]], dtype=object), True)
     entry3 = lambda a,b,c: from_matrix(np.array([[a], [b], [c]], dtype=object), True)
@@ -267,16 +283,16 @@ def validation_matrix(true_y, pred_y, threshold=0.5, beta=1):
     cm_xlabel = np.array([['Positive (P)\n= '+f2s(P/T), 'Negative (N)\n= '+f2s(N/T)]])
     cm, cm_ylabel, cm_xlabel = from_matrix(cm), from_matrix(cm_ylabel), from_matrix(cm_xlabel)
     rt = np.array([
-        [entry2('Positive predictive value\n(PPV); Precision', latex2png(r'\frac{TP}{TP+FP} = ' + f2s(TP / (TP + FP)), fracs)/255), 
-         entry2('False discovery rate\n(FDR)', latex2png(r'\frac{FP}{TP+FP} = ' + f2s(FP / (TP + FP)), fracs)/255)],
-        [entry2('False omission rate\n(FOR)', latex2png(r'\frac{FN}{TN+FN} = ' + f2s(FN / (TN + FN)), fracs)/255), 
-         entry2('Negative predictive value\n(NPV)', latex2png(r'\frac{TN}{TN+FN} = ' + f2s(TN / (TN + FN)), fracs)/255)]
+        [entry2('Positive predictive value\n(PPV); Precision', latex2png(r'\frac{TP}{TP+FP} = ' + f2s(PPV), fracs)/255), 
+         entry2('False discovery rate\n(FDR)', latex2png(r'\frac{FP}{TP+FP} = ' + f2s(FDR), fracs)/255)],
+        [entry2('False omission rate\n(FOR)', latex2png(r'\frac{FN}{TN+FN} = ' + f2s(FOR), fracs)/255), 
+         entry2('Negative predictive value\n(NPV)', latex2png(r'\frac{TN}{TN+FN} = ' + f2s(NPV), fracs)/255)]
     ])
     lb = np.array([
-        [entry2('True Positive Rate (TPR)\nSensitivity, Recall', latex2png(r'\frac{TP}{TP+FN} = ' + f2s(TP / (TP + FN)), fracs)/255), 
-         entry2('False Positive Rate (FPR)\nFall-out', latex2png(r'\frac{FP}{FP+TN} = ' + f2s(FP / (FP + TN)), fracs)/255)],
-        [entry2('False Negative Rate (FNR)\nMiss rate', latex2png(r'\frac{FN}{TP+FN} = ' + f2s(FN / (TP + FN)), fracs)/255), 
-         entry2('True Negative Rate (TNR)\nSpecificity', latex2png(r'\frac{TN}{FP+TN} = ' + f2s(TN / (FP + TN)), fracs)/255)]
+        [entry2('True Positive Rate (TPR)\nSensitivity, Recall', latex2png(r'\frac{TP}{TP+FN} = ' + f2s(TPR), fracs)/255), 
+         entry2('False Positive Rate (FPR)\nFall-out', latex2png(r'\frac{FP}{FP+TN} = ' + f2s(FPR), fracs)/255)],
+        [entry2('False Negative Rate (FNR)\nMiss rate', latex2png(r'\frac{FN}{TP+FN} = ' + f2s(FNR), fracs)/255), 
+         entry2('True Negative Rate (TNR)\nSpecificity', latex2png(r'\frac{TN}{FP+TN} = ' + f2s(TNR), fracs)/255)]
     ])
     acc = 'Accuracy = (TP + TN) / Total = ' + f2s((TP+TN)/T)
     rt, lb = from_matrix(rt), from_matrix(lb)
@@ -288,17 +304,17 @@ def validation_matrix(true_y, pred_y, threshold=0.5, beta=1):
     ext = FlexTransparentTable(1, 1, line_height=0.8, align='left')
     ext.put_item(1, 1, latex2png(
         r'\begin{align*}'+\
-        r'& \text{Positive likelihood ratio (LR+)} = TPR/FPR = ' + f2s(TP/FP*(FP+TN)/(TP+FN)) + r'\\'+\
-        r'& \text{Negative likelihood ratio (LR-)} = FNR/TNR = ' + f2s(FN/TN*(FP+TN)/(TP+FN)) + r'\\'+\
-        r'& \text{Diagnostic odds ratio (DOR)} = LR+/LR- = ' + f2s(TP*TN/(FP*FN)) + r'\\'+\
-        r'& F_{'+str(beta)+r'}\text{-score} = \\ &\qquad '+sp.latex(oF_score, mul_symbol='dot') + "=" + f2s(TP / ((1+beta**2)*TP + beta**2*FN + FP)) + r'\\'+\
+        r'& \text{Positive likelihood ratio (LR+)} = TPR/FPR = ' + f2s(LRp) + r'\\'+\
+        r'& \text{Negative likelihood ratio (LR-)} = FNR/TNR = ' + f2s(LRn) + r'\\'+\
+        r'& \text{Diagnostic odds ratio (DOR)} = LR+/LR- = ' + f2s(DOR) + r'\\'+\
+        r'& F_{'+str(beta)+r'}\text{-score} = \\ &\qquad '+sp.latex(oF_score, mul_symbol='dot') + "=" + f2s(f1_score) + r'\\'+\
 #         r'& \text{G-measure} = ' + f2s(TP / ((TP+FP)*(TP+FN))**0.5) + r'\\'+\
 #         r'& \text{Cohen\'s kappa} = ' + f2s(2*(TP*TN-FN*FP) / ((TP+FP)*(FP+TN)+(TP+FN)*(FN+TN))) + r'\\'+\
         r'\end{align*}', 200)/255)
     
     table_mat = np.array([
         ['', '', 'True Condition', FlexLineTable(1, 2)],
-        ['', latex2png(r'\bold Total\\'+ f2s(T/10**np.floor(np.log10(T))) + r'\times 10^{' + str(int(np.floor(np.log10(T)))) + r'}', 35)/255, cm_xlabel, acc],
+        ['threshold\n='+f2s(threshold), latex2png(r'\bold Total\\'+ f2s(T/10**np.floor(np.log10(T))) + r'\times 10^{' + str(int(np.floor(np.log10(T)))) + r'}', 35)/255, cm_xlabel, acc],
         ['Predicted\noutcome', cm_ylabel, cm, rt],
         [FlexLineTable(2, 1), '', lb, ext]
     ], dtype=object)

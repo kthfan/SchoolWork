@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import requests
+import sympy as sp
 
 class Table:
     def __init__(self, line_width=1, border_color=(0,0,0), img_shape=(256, 256), font_scale=0.5, line_height=0.8, align='center'):
@@ -262,7 +263,7 @@ def validation_matrix(true_y, pred_y, threshold=0.5, beta=1):
         [entry3('True Positive\n(TP)', '='+f2s(TP/T), ' '), entry3('False Positive\n(FP)', '='+f2s(FP/T), 'Type I error')],
         [entry3('False Negative\n(FN)', '='+f2s(FN/T), 'Type II error'), entry3('True Negative\n(TN)', '='+f2s(TN/T), ' ')]
     ]) 
-    cm_ylabel = np.array([['Positive\n= '+f2s((TP+FN)/T)], ['Negative\n= '+f2s((TN+FP)/T)]])
+    cm_ylabel = np.array([['Positive\n= '+f2s((TP+FP)/T)], ['Negative\n= '+f2s((TN+FN)/T)]])
     cm_xlabel = np.array([['Positive (P)\n= '+f2s(P/T), 'Negative (N)\n= '+f2s(N/T)]])
     cm, cm_ylabel, cm_xlabel = from_matrix(cm), from_matrix(cm_ylabel), from_matrix(cm_xlabel)
     rt = np.array([
@@ -277,17 +278,22 @@ def validation_matrix(true_y, pred_y, threshold=0.5, beta=1):
         [entry2('False Negative Rate (FNR)\nMiss rate', latex2png(r'\frac{FN}{TP+FN} = ' + f2s(FN / (TP + FN)), fracs)/255), 
          entry2('True Negative Rate (TNR)\nSpecificity', latex2png(r'\frac{TN}{FP+TN} = ' + f2s(TN / (FP + TN)), fracs)/255)]
     ])
-    acc = np.array([['Accuracy = ' + f2s((TP+TN)/T)]])
-    rt, lb, acc = from_matrix(rt), from_matrix(lb), from_matrix(acc)
+    acc = 'Accuracy = (TP + TN) / Total = ' + f2s((TP+TN)/T)
+    rt, lb = from_matrix(rt), from_matrix(lb)
+    
+    
+    iRecall, iPrecision = sp.Symbol('Recall'), sp.Symbol('Precision')
+    oF_score = (beta**2+1)*iRecall*iPrecision/(iRecall+beta**2*iPrecision)
+    
     ext = FlexTransparentTable(1, 1, line_height=0.8, align='left')
     ext.put_item(1, 1, latex2png(
         r'\begin{align*}'+\
-        r'& \text{Positive likelihood ratio (LR+)} = ' + f2s(TP/FP*(FP+TN)/(TP+FN)) + r'\\'+\
-        r'& \text{Negative likelihood ratio (LR-)} = ' + f2s(FN/TN*(FP+TN)/(TP+FN)) + r'\\'+\
-        r'& \text{Diagnostic odds ratio (DOR)} = ' + f2s(TP*TN/(FP*FN)) + r'\\'+\
-        r'& F_{'+str(beta)+r'}\text{-score} = ' + f2s(TP / ((1+beta**2)*TP + beta**2*FN + FP)) + r'\\'+\
-        r'& \text{G-measure} = ' + f2s(TP / ((TP+FP)*(TP+FN))**0.5) + r'\\'+\
-        r'& \text{Cohen\'s kappa} = ' + f2s(2*(TP*TN-FN*FP) / ((TP+FP)*(FP+TN)+(TP+FN)*(FN+TN))) + r'\\'+\
+        r'& \text{Positive likelihood ratio (LR+)} = TPR/FPR = ' + f2s(TP/FP*(FP+TN)/(TP+FN)) + r'\\'+\
+        r'& \text{Negative likelihood ratio (LR-)} = FNR/TNR = ' + f2s(FN/TN*(FP+TN)/(TP+FN)) + r'\\'+\
+        r'& \text{Diagnostic odds ratio (DOR)} = LR+/LR- = ' + f2s(TP*TN/(FP*FN)) + r'\\'+\
+        r'& F_{'+str(beta)+r'}\text{-score} = \\ &\qquad '+sp.latex(oF_score, mul_symbol='dot') + "=" + f2s(TP / ((1+beta**2)*TP + beta**2*FN + FP)) + r'\\'+\
+#         r'& \text{G-measure} = ' + f2s(TP / ((TP+FP)*(TP+FN))**0.5) + r'\\'+\
+#         r'& \text{Cohen\'s kappa} = ' + f2s(2*(TP*TN-FN*FP) / ((TP+FP)*(FP+TN)+(TP+FN)*(FN+TN))) + r'\\'+\
         r'\end{align*}', 200)/255)
     
     table_mat = np.array([

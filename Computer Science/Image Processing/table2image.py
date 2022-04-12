@@ -240,7 +240,35 @@ def from_matrix(mat, transp=False):
             table.put_item(i+1, j+1, mat[i, j])
     return table
 
-def validation_matrix(true_y, pred_y, threshold=0.5, beta=1):
+def compare_validation(true_y_list, pred_y_list, threshold=0.5, beta=1):
+#     f2s = lambda f: str(np.round(f, 3))
+    result = np.empty((1+len(true_y_list)+4, 5), dtype=object)
+    result[0] = ['', 'Accuracy', 'Recall', 'Precision', 'f1-score']
+    num_result = np.zeros((len(true_y_list)+4, 4), dtype=np.float32)
+    for i, true_y, pred_y in zip(range(len(true_y_list)), true_y_list, pred_y_list):
+        pred_y = pred_y.ravel()
+        if threshold is not None: pred_y = pred_y > threshold
+        true_y = np.array(true_y).astype(bool).ravel()
+        TP = np.count_nonzero(true_y & pred_y)
+        TN = np.count_nonzero((~true_y) & (~pred_y))
+        FP = np.count_nonzero((~true_y) & pred_y)
+        FN = np.count_nonzero(true_y & (~pred_y))
+        ACC = (TP+TN) / true_y.size
+        PPV = TP / (TP + FP) if TP + FP != 0 else 0
+        TPR = TP / (TP + FN) if TP + FN != 0 else 0
+        f1_score = TP / ((1+beta**2)*TP + beta**2*FN + FP) if (1+beta**2)*TP + beta**2*FN + FP != 0 else 0
+        
+        num_result[i] = [ACC, TPR, PPV, f1_score]
+        result[i+1, 0] = '{}:'.format(i+1)
+    num_result[-1] = num_result[0:-4].std(axis=0); result[-1, 0] = 'std'
+    num_result[-2] = num_result[0:-4].min(axis=0); result[-2, 0] = 'min'
+    num_result[-3] = num_result[0:-4].max(axis=0); result[-3, 0] = 'max'
+    num_result[-4] = num_result[0:-4].mean(axis=0); result[-4, 0] = 'avg'
+    result[1:, 1:] = num_result.round(3).astype(str)
+    
+    table = from_matrix(result)
+    return table
+def validation_matrix_example(true_y, pred_y, threshold=0.5, beta=1):
     pred_y = pred_y.ravel()
     if threshold is not None: pred_y = pred_y > threshold
     true_y = np.array(true_y).astype(bool).ravel()
@@ -272,7 +300,7 @@ def validation_matrix(true_y, pred_y, threshold=0.5, beta=1):
     
     entry2 = lambda a,b: from_matrix(np.array([[a], [b]], dtype=object), True)
     entry3 = lambda a,b,c: from_matrix(np.array([[a], [b], [c]], dtype=object), True)
-    f2s = lambda f: str(round(f, 2))
+    f2s = lambda f: str(np.round(f, 2))
     fracs = 50
     
     cm = np.array([
@@ -320,3 +348,77 @@ def validation_matrix(true_y, pred_y, threshold=0.5, beta=1):
     ], dtype=object)
     table = from_matrix(table_mat)
     return table
+
+def validation_matrix(true_y, pred_y, weights=None, beta=1):
+    n_cls = true_y.shape[1]
+    if weights is None: weights = np.ones(n_cls, dtype=np.float32)
+    true_y = np.array(true_y).astype(bool)
+    weights = np.array(weights, dtype=np.float32)
+    pred_y = pred_y*weights
+    pred_y = np.argmax(pred_y, axis=1).reshape((-1, 1)) == np.arange(n_cls)
+    cm =  true_y.astype(np.int32).T @ pred_y.astype(np.int32)
+    total = cm.sum()
+    pred_num = cm.sum(axis=0).ravel()
+    true_num = cm.sum(axis=1).ravel()
+    rt = cm / true_num.reshape((1, -1))
+    lb = cm / pred_num.reshape((-1, 1))
+    acc = np.diag(cm).sum() / total
+    recall = np.diag(rt)
+    precisioin = np.diag(lb)
+    f1_score = (1+beta**2)*precisioin*recall/(beta**2*precisioin + recall)
+    
+    def f2s(mat):
+        mat = np.round(mat, 2)
+        smat = mat.astype(str).copy()
+        for i in range(mat.shape[0]):
+            if len(mat.shape) == 1:
+                smat[i] = "\n  {:1.2f}  \n".format(mat[i])
+                continue
+            for j in range(mat.shape[1]):
+                smat[i, j] = "\n  {:1.2f}  \n".format(mat[i, j])
+        return smat
+    entry2 = lambda a,b: from_matrix(np.array([[a], [b]], dtype=object), True)
+    entry3 = lambda a,b,c: from_matrix(np.array([[a], [b], [c]], dtype=object), True)
+    
+    class_names = np.array(['C-{}'.format(i) for i in range(n_cls)], dtype=object)
+    
+    h_bar = from_matrix((np.array(['num: {:1.2f}\n'.format(n/total) for n in pred_num], dtype=object) + class_names).reshape((1, -1)))
+    v_bar = from_matrix((class_names + np.array(['\n num: {:1.2f}'.format(n/total) for n in true_num], dtype=object)).reshape((-1, 1)))
+    cm_table = from_matrix(np.array([
+        ['', h_bar],
+        [v_bar, from_matrix(f2s(cm / total))]
+    ], dtype=object))
+    rt_table = from_matrix(np.array([
+        [from_matrix(class_names.reshape((1, -1))+'\n')],
+        [from_matrix(f2s(rt))]
+    ], dtype=object))
+    lb_table = from_matrix(np.array([
+        [from_matrix('   '+class_names.reshape((-1, 1))+'   '), from_matrix(f2s(lb))]
+    ], dtype=object))
+    additional = from_matrix(np.array([
+        ['']
+    ], dtype=object), True)
+    info_body = from_matrix(np.array([
+        [cm_table, rt_table],
+        [lb_table, additional]
+    ], dtype=object))
+    header = from_matrix(np.array([
+        ['', entry2('Total', total), entry2('   Weights   ', from_matrix(weights.round(2).reshape((1,-1)))), entry2('Accuracy', acc)]
+    ], dtype=object))
+    body = from_matrix(np.array([
+        ['', 'Predicted condition'],
+        ['   \n'+'\n'.join(list('Actual condition')), info_body]
+    ], dtype=object))
+    ext_table = from_matrix(np.array([
+        ['', *class_names],
+        ['Precision', *f2s(precisioin)],
+        ['Recall', *f2s(recall)],
+        ['f1-score', *f2s(f1_score)]
+    ], dtype=object))
+    table_mat = from_matrix(np.array([
+        [header],
+        [body],
+        [ext_table]
+    ], dtype=object))
+    
+    return table_mat

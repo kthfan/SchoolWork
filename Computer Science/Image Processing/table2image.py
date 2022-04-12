@@ -360,8 +360,8 @@ def validation_matrix(true_y, pred_y, weights=None, beta=1):
     total = cm.sum()
     pred_num = cm.sum(axis=0).ravel()
     true_num = cm.sum(axis=1).ravel()
-    rt = cm / true_num.reshape((1, -1))
-    lb = cm / pred_num.reshape((-1, 1))
+    rt = cm / true_num.reshape((-1, 1))
+    lb = cm / pred_num.reshape((1, -1))
     acc = np.diag(cm).sum() / total
     recall = np.diag(rt)
     precisioin = np.diag(lb)

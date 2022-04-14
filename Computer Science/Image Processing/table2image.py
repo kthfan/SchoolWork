@@ -256,7 +256,8 @@ def compare_validation(true_y_list, pred_y_list, threshold=0.5, beta=1):
         ACC = (TP+TN) / true_y.size
         PPV = TP / (TP + FP) if TP + FP != 0 else 0
         TPR = TP / (TP + FN) if TP + FN != 0 else 0
-        f1_score = TP / ((1+beta**2)*TP + beta**2*FN + FP) if (1+beta**2)*TP + beta**2*FN + FP != 0 else 0
+        
+        f1_score = (1+beta**2)*PPV*TPR/(beta**2*PPV + TPR) if (beta**2*PPV + TPR) != 0 else 0
         
         num_result[i] = [ACC, TPR, PPV, f1_score]
         result[i+1, 0] = '{}:'.format(i+1)
@@ -294,8 +295,7 @@ def validation_matrix_example(true_y, pred_y, threshold=0.5, beta=1):
     LRp = TPR/FPR if FPR != 0 else 0
     LRn = FNR/TNR if TNR != 0 else 0
     DOR = LRp/LRn if LRn != 0 else 0
-    f1_score = TP / ((1+beta**2)*TP + beta**2*FN + FP) if (1+beta**2)*TP + beta**2*FN + FP != 0 else 0
-    
+    f1_score = (1+beta**2)*PPV*TPR/(beta**2*PPV + TPR) if (beta**2*PPV + TPR) != 0 else 0
     
     
     entry2 = lambda a,b: from_matrix(np.array([[a], [b]], dtype=object), True)

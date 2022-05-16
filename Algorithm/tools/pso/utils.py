@@ -53,7 +53,7 @@ def WeightedAUC(label_weights, steps=200):
         return np.dot(auc, label_weights)
     return weighted_auc
 
-def WeightedF1Score(label_weights, threshold_weights=None, beta=None):
+def WeightedF1Score(label_weights, threshold_weights=None, beta=None, epsilon=1e-6):
     label_weights = np.array(label_weights)
     label_weights = label_weights / label_weights.sum()
     label_weights = label_weights.ravel()
@@ -62,18 +62,14 @@ def WeightedF1Score(label_weights, threshold_weights=None, beta=None):
     if beta is None: beta = 1
     def weighted_f1_score(true_y, pred_y):
         n_cls = true_y.shape[1]
-        true_y = np.array(true_y).astype(bool)
         pred_y = pred_y*threshold_weights
         pred_y = np.argmax(pred_y, axis=1).reshape((-1, 1)) == np.arange(n_cls)
         cm =  true_y.astype(np.int32).T @ pred_y.astype(np.int32)
-        
         pred_num = cm.sum(axis=0).ravel()
         true_num = cm.sum(axis=1).ravel()
-        rt = cm / true_num.reshape((-1, 1))
-        lb = cm / pred_num.reshape((1, -1))
-        recall = np.diag(rt)
-        precisioin = np.diag(lb)
-        f1_score = (1+beta**2)*precisioin*recall/(beta**2*precisioin + recall)
+        recall = np.diag(cm) / true_num
+        precisioin = np.diag(cm) / (pred_num + epsilon)
+        f1_score = (1+beta**2)*precisioin*recall/(beta**2*precisioin + recall + epsilon)
         
         return np.dot(f1_score, label_weights)
     return weighted_f1_score

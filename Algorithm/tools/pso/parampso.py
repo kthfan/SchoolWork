@@ -11,6 +11,23 @@ __all__ = ['HyperParamPSO', 'FocalLossPSO']
 
 np.random.truncnorm = lambda lower, upper, loc, scale, shape:truncnorm.ppf(np.random.uniform(0, 1, shape), lower, upper, loc=loc, scale=scale)
 
+# import time
+# class Timer:
+#     def __init__(self):
+#         self.start()
+#     def start(self):
+#         self.current_time = time.time()
+#         return self.current_time
+#     def end(self, label='', to_print=True):
+#         s = time.time() - self.current_time
+#         if to_print:
+#             print(label, s)
+#         return s
+#     def next(self, label='', to_print=True):
+#         s = self.end(label, to_print)
+#         self.start()
+#         return s
+# timer = Timer()
 
 class HyperParamPSO:
     def __init__(self, model_template, num_particles):
@@ -51,7 +68,7 @@ class HyperParamPSO:
             metrics = ['accuracy']
         self.fitness = fitness
         
-        for model in self.model_list: 
+        for model in self.model_list:
             if as_model_template:
                 self._copy_model(self.model_template, model, set_weight=False, compile=True, **kwds)
             else:
@@ -73,7 +90,7 @@ class HyperParamPSO:
                 model.__dict__[k] = v
         
     def charge(self, train_ds, val_ds, validation_steps, particles, charge_iter, 
-               pso_iter, pso_tol, refresh_weights, k_fold_ds_list=None, **kwds):
+               pso_iter, pso_tol, refresh_weights, pso_patient, k_fold_ds_list=None, **kwds):
         
         # Variables for k fold
         current_k = 0
@@ -112,8 +129,10 @@ class HyperParamPSO:
             def show_pso_process(current_iter, particles):
                 nonlocal current_k
                 pbar.update(1)
+                velocity_scale = (particles.velocities**2).sum(axis=1)**0.5
                 pbar.set_postfix(fitness=particles.global_fitness[0],
-                                max_velocity=(particles.velocities**2).sum(axis=1).max()**0.5)
+                                max_velocity=velocity_scale.max(),
+                                avg_velocity=velocity_scale.mean())
                 
                 # update k fold
                 if k_fold_ds_list is not None:
@@ -121,18 +140,24 @@ class HyperParamPSO:
                     train_ds, val_ds = k_fold_ds_list[current_k]
                 return False
             
-            self.pso_solver.fit(particles, max_iter=pso_iter, tol=pso_tol, stop_condition=show_pso_process)
+            return self.pso_solver.fit(particles, max_iter=pso_iter, tol=pso_tol, patient=pso_patient, stop_condition=show_pso_process)
+
     def sprint(self, model, train_ds, sprint_iter, **kwds):
+        history_list = {}
         with tqdm(total=sprint_iter) as pbar:
             for i in range(sprint_iter):
                 history = model.fit(train_ds, epochs=1, verbose=0)
                 pbar.update(1)
                 history = dict([(k, v[0]) for k, v in history.history.items()])
                 pbar.set_postfix(**history)
+                # append history
+                for k, v in history.items():
+                    history_list[k] = [*history_list.get(k, []), v]
+        return history_list
             
-    def fit(self, x=None, y=None, batch_size=32, validation_split=0.2, validation_data=None, 
-            steps_per_epoch=None, validation_steps=None, validation_batch_size=None, k_fold=None,
-            num_phases=10, charge_iter=20, pso_iter=10, refresh_weights=True, pso_tol=1e-3, sprint_iter=100, **kwds):
+    def fit(self, x=None, y=None, batch_size=32, validation_split=0.2, validation_data=None, steps_per_epoch=None, 
+            validation_steps=None, validation_batch_size=None, k_fold=None, num_phases=10, charge_iter=20, 
+            pso_iter=10, refresh_weights=True, pso_tol=1e-3, pso_patient=0, sprint_iter=100, **kwds):
         
         ####################### setting arguments #####################
         # check train data is array or dataset
@@ -188,6 +213,7 @@ class HyperParamPSO:
             self._copy_model(self.model_list[next_global_index], self.best_model, set_weight=True, compile=True)
         self.pso_solver.on_global_change = on_global_change
         
+        history = {'charge': [], 'sprint': []}
         ############################ start training ###########################
         for phase in range(num_phases):
             print("================ phase {} ================".format(phase))
@@ -205,9 +231,10 @@ class HyperParamPSO:
                                 fitness_func=None)
             
             print("Charging...")
-            self.charge(train_ds, val_ds, validation_steps, particles=self.particles,
-                        charge_iter=charge_iter, pso_iter=charge_iter, pso_tol=pso_tol,
-                        refresh_weights=refresh_weights, k_fold_ds_list=k_fold_ds_list)
+            charge_res = self.charge(train_ds, val_ds, validation_steps, particles=self.particles,
+                        charge_iter=charge_iter, pso_iter=pso_iter, pso_tol=pso_tol, pso_patient=pso_patient,
+                        refresh_weights=refresh_weights, k_fold_ds_list=k_fold_ds_list, **kwds)
+            history['charge'].append(charge_res)
             
             # prepare best param and best model
             best_index = np.argmax(self.particles.best_fitness, axis=0)[0]
@@ -220,11 +247,15 @@ class HyperParamPSO:
             
             print("Sprinting...")
             if k_fold is  None:
-                self.sprint(best_model, train_ds, sprint_iter, **kwds)
+                sprint_res = self.sprint(best_model, train_ds, sprint_iter, **kwds)
+                history['sprint'].append(sprint_res)
             else:
-                self.sprint(best_model, k_fold_ds, sprint_iter, **kwds)
+                sprint_res = self.sprint(best_model, k_fold_ds, sprint_iter, **kwds)
+                history['sprint'].append(sprint_res)
         
-        return self.best_model, self.global_solution
+        return {'model': self.best_model,
+                'solution': self.global_solution,
+                'history': history}
         
 class FocalLossPSO(HyperParamPSO):
     def __init__(self, num_classes, param_scale=2, **kwds):

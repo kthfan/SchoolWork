@@ -53,18 +53,17 @@ def WeightedAUC(label_weights, steps=200):
         return np.dot(auc, label_weights)
     return weighted_auc
 
-def WeightedF1Score(label_weight, threshold_weight=None, beta=None):
+def WeightedF1Score(label_weights, threshold_weights=None, beta=None):
     label_weights = np.array(label_weights)
     label_weights = label_weights / label_weights.sum()
     label_weights = label_weights.ravel()
-    if threshold_weight is None: threshold_weight = 1
+    if threshold_weights is None: threshold_weights = 1
+    threshold_weights = np.array(threshold_weights, dtype=np.float32)
     if beta is None: beta = 1
     def weighted_f1_score(true_y, pred_y):
         n_cls = true_y.shape[1]
-        if weights is None: weights = np.ones(n_cls, dtype=np.float32)
         true_y = np.array(true_y).astype(bool)
-        weights = np.array(weights, dtype=np.float32)
-        pred_y = pred_y*weights
+        pred_y = pred_y*threshold_weights
         pred_y = np.argmax(pred_y, axis=1).reshape((-1, 1)) == np.arange(n_cls)
         cm =  true_y.astype(np.int32).T @ pred_y.astype(np.int32)
         

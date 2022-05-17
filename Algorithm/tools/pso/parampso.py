@@ -4,8 +4,10 @@ import tensorflow as tf
 from tqdm import tqdm
 from sklearn.model_selection import StratifiedKFold
 from scipy.stats import truncnorm
+import multiprocessing
 from .pso import *
 from .utils import *
+
 
 __all__ = ['HyperParamPSO', 'FocalLossPSO']
 
@@ -28,6 +30,7 @@ np.random.truncnorm = lambda lower, upper, loc, scale, shape:truncnorm.ppf(np.ra
 #         self.start()
 #         return s
 # timer = Timer()
+
 
 class HyperParamPSO:
     def __init__(self, model_template, num_particles):
@@ -89,7 +92,7 @@ class HyperParamPSO:
             else:
                 model.__dict__[k] = v
         
-    def charge(self, train_ds, val_ds, validation_steps, particles, charge_iter, 
+    def charge(self, train_ds, val_ds, validation_steps, particles, charge_iter, pso_workers,
                pso_iter, pso_tol, refresh_weights, pso_patient, k_fold_ds_list=None, **kwds):
         
         # Variables for k fold
@@ -101,46 +104,49 @@ class HyperParamPSO:
         restore_model = None
         if refresh_weights: restore_model = self._copy_model(self.best_model, set_weight=True, compile=True)
         
+        def train_single_model(model, param):
+            # initialize model
+            if refresh_weights:
+                self._copy_model(restore_model, model, set_weight=True, compile=True)
+            self.set_model_param(model, param)
+            model.fit(train_ds, epochs=charge_iter, verbose=0, **kwds)
+            
+            # split val_ds into x, y
+            val_x_ds = val_ds.map(lambda x, y: x)
+            val_y_ds = val_ds.map(lambda x, y: y)
+            val_y = val_y_ds.take(validation_steps).as_numpy_iterator()
+            val_y = np.concatenate(list(val_y), axis=0)
+                
+            pred_y = model.predict(val_x_ds)
+            return self.fitness(val_y, pred_y)
         def train_models(params):
             params = self.matrix_to_param(params)
-            fitness_score = np.zeros((self.num_particles, 1), dtype=np.float32)
-            for i, model in enumerate(self.model_list):
-                # initialize model
-                if refresh_weights:
-                    self._copy_model(restore_model, model, set_weight=True, compile=True)
-                self.set_model_param(model, params[i])
-                model.fit(train_ds, epochs=charge_iter, verbose=0, **kwds)
-                
-                # split val_ds into x, y
-                val_x_ds = val_ds.map(lambda x, y: x)
-                val_y_ds = val_ds.map(lambda x, y: y)
-                val_y = val_y_ds.take(validation_steps).as_numpy_iterator()
-                val_y = np.concatenate(list(val_y), axis=0)
-                
-                pred_y = model.predict(val_x_ds)
-                fitness_score[i, 0] = self.fitness(val_y, pred_y)
+            fitness_score = None
+            ## check for workers
+            if pso_workers == 1:
+                fitness_score = [train_single_model(model, param) for model, param in zip(self.model_list, params)]
+            else:
+                with multiprocessing.pool.ThreadPool(min(multiprocessing.cpu_count(), self.num_particles, pso_workers)) as pool:
+                    fitness_score = pool.map(lambda arg:train_single_model(*arg), [(model, param) for model, param in zip(self.model_list, params)])
+                pool.join()
+
+            fitness_score = np.array(fitness_score, dtype=np.float32).reshape((self.num_particles, 1))
             return fitness_score
         
         self.pso_solver.fitness_func = train_models
             
-        # show the process of PSO search
-        with tqdm(total=pso_iter) as pbar:
-            pbar.set_description("PSO")
-            def show_pso_process(current_iter, particles):
-                nonlocal current_k
-                pbar.update(1)
-                velocity_scale = (particles.velocities**2).sum(axis=1)**0.5
-                pbar.set_postfix(fitness=particles.global_fitness[0],
-                                max_velocity=velocity_scale.max(),
-                                avg_velocity=velocity_scale.mean())
-                
-                # update k fold
-                if k_fold_ds_list is not None:
-                    current_k = (current_k + 1) % k_fold
-                    train_ds, val_ds = k_fold_ds_list[current_k]
-                return False
+        def each_iter(current_iter, particles):
+            nonlocal current_k
+
+            if k_fold_ds_list is not None:
+                current_k = (current_k + 1) % k_fold
+                train_ds, val_ds = k_fold_ds_list[current_k]
+            return False
             
-            return self.pso_solver.fit(particles, max_iter=pso_iter, tol=pso_tol, patient=pso_patient, stop_condition=show_pso_process)
+        result = self.pso_solver.fit(particles, max_iter=pso_iter, tol=pso_tol, 
+                        patient=pso_patient, stop_condition=each_iter, verbose=1)
+        
+        return result
 
     def sprint(self, model, train_ds, sprint_iter, **kwds):
         history_list = {}
@@ -156,7 +162,7 @@ class HyperParamPSO:
         return history_list
             
     def fit(self, x=None, y=None, batch_size=32, validation_split=0.2, validation_data=None, steps_per_epoch=None, 
-            validation_steps=None, validation_batch_size=None, k_fold=None, num_phases=10, charge_iter=20, 
+            validation_steps=None, validation_batch_size=None, k_fold=None, num_phases=10, charge_iter=20, pso_workers=1,
             pso_iter=10, refresh_weights=True, pso_tol=1e-3, pso_patient=0, sprint_iter=100, **kwds):
         
         ####################### setting arguments #####################
@@ -231,7 +237,7 @@ class HyperParamPSO:
                                 fitness_func=None)
             
             print("Charging...")
-            charge_res = self.charge(train_ds, val_ds, validation_steps, particles=self.particles,
+            charge_res = self.charge(train_ds, val_ds, validation_steps, particles=self.particles, pso_workers=pso_workers,
                         charge_iter=charge_iter, pso_iter=pso_iter, pso_tol=pso_tol, pso_patient=pso_patient,
                         refresh_weights=refresh_weights, k_fold_ds_list=k_fold_ds_list, **kwds)
             history['charge'].append(charge_res)
@@ -258,9 +264,10 @@ class HyperParamPSO:
                 'history': history}
         
 class FocalLossPSO(HyperParamPSO):
-    def __init__(self, num_classes, param_scale=2, **kwds):
+    def __init__(self, num_classes, label_num=None, param_scale=1, **kwds):
         super(FocalLossPSO, self).__init__(**kwds)
         self.num_classes = num_classes
+        self.label_num = np.ones(num_classes, dtype=np.float32)/num_classes if label_num is None else np.array(label_num, dtype=np.float32)
         self.param_scale = param_scale
         
         self.particles_boundary = [np.zeros(2*self.num_classes, dtype=np.float32),
@@ -269,11 +276,25 @@ class FocalLossPSO(HyperParamPSO):
     def compile(self, optimizer, **kwds):
         super(FocalLossPSO, self).compile(optimizer, loss=SparseFocalCrossEntropy(alpha=1, gamma=0), **kwds)
     def initialize_param(self):
-        params = []
-        for i in range(self.num_particles):
+        if self.global_solution is None:
+            self.global_solution = np.concatenate([1/self.label_num/np.sum(1/self.label_num), np.zeros(self.num_classes)])
+        base_params = self.global_solution
+        
+        # initialize params by truncnorm
+        params_mat = np.zeros((2*self.num_classes, self.num_particles-1), dtype=np.float32)
+        for i in range(self.num_classes):
+            aloc = base_params[i]
+            rloc = base_params[i+self.num_classes]
+            params_mat[i] = np.random.truncnorm(-aloc/self.param_scale, (1-aloc)/self.param_scale, aloc, self.param_scale, self.num_particles-1)
+            params_mat[i+self.num_classes] = np.random.truncnorm(-rloc/self.param_scale/2, (10-rloc)/self.param_scale/2, rloc, 2*self.param_scale, self.num_particles-1)
+        
+        # set params in dict
+        params = [{'alpha': self.global_solution[:self.num_classes], 'gamma': self.global_solution[self.num_classes:]}]
+        params_mat = params_mat.T  
+        for i in range(self.num_particles-1):
             params.append({
-                'alpha': np.random.truncnorm(-4/self.param_scale, 4/self.param_scale, 0.5, 0.1*self.param_scale, self.num_classes),
-                'gamma': np.random.truncnorm(-1/self.param_scale, 5, 1, self.param_scale, self.num_classes)
+                'alpha': params_mat[i, :self.num_classes],
+                'gamma': params_mat[i, self.num_classes:]
             })
         return params
     

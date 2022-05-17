@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 
 __all__ = ['PSOSolver', 'PSOParticles']
 
@@ -13,28 +14,41 @@ class PSOSolver:
         # https://ieeexplore.ieee.org/document/870279
         self.K = 2 / np.abs(2-phi-(phi**2-4*phi)**0.5)
         self.fitness_func = fitness_func
-    def fit(self, particles, max_iter=1000, tol=1e-6, patient=0, stop_condition=None):
+    def fit(self, particles, max_iter=1000, tol=1e-6, patient=0, stop_condition=None, verbose=1):
+        ## setting config
         if isinstance(particles, np.ndarray):
             particles = PSOParticles(particles, self.fitness_func)
         if not particles.is_initialized:
             particles.initialize_variables(fitness_func=self.fitness_func)
+        if verbose:
+            pbar = tqdm(total=max_iter)
+            pbar.set_description("PSO")
         
         history = {'fitness': [], 'solution':[], 'max_velocity':[], 'avg_velocity':[]}
         patient_count = 0
         for current_iter in range(max_iter):
             history['fitness'].append(particles.global_fitness)
             history['solution'].append(particles.global_solution)
+
             self._single_iteration(particles, current_iter, max_iter)
+
             velocity_scale = (particles.velocities**2).sum(axis=1)**0.5
             history['max_velocity'].append(velocity_scale.max())
             history['avg_velocity'].append(velocity_scale.mean())
+
+            # show progress
+            if verbose:
+                pbar.update(1)
+                pbar.set_postfix(fitness=particles.global_fitness[0],
+                        max_velocity=velocity_scale.max(),
+                        avg_velocity=velocity_scale.mean())
             if stop_condition is not None and stop_condition(current_iter, particles):
                 break
             if velocity_scale.max() < tol:
                 patient_count += 1
                 if patient_count > patient:
                     break
-        
+        pbar.close()
         return history
             
     def _single_iteration(self, particles, current_iter, max_iter):

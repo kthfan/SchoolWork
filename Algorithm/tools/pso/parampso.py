@@ -264,12 +264,13 @@ class HyperParamPSO:
                 'history': history}
         
 class FocalLossPSO(HyperParamPSO):
-    def __init__(self, num_classes, label_num=None, param_scale=1, **kwds):
+    def __init__(self, num_classes, label_num=None, alpha_scale=0.1, gamma_scale=1, **kwds):
         super(FocalLossPSO, self).__init__(**kwds)
         self.num_classes = num_classes
         self.label_num = np.ones(num_classes, dtype=np.float32)/num_classes if label_num is None else np.array(label_num, dtype=np.float32)
-        self.param_scale = param_scale
-        
+        self.alpha_scale = alpha_scale
+        self.gamma_scale = gamma_scale
+
         self.particles_boundary = [np.zeros(2*self.num_classes, dtype=np.float32),
                                     np.concatenate([np.ones(self.num_classes, dtype=np.float32),
                                                     np.inf*np.ones(self.num_classes, dtype=np.float32)])]
@@ -285,8 +286,8 @@ class FocalLossPSO(HyperParamPSO):
         for i in range(self.num_classes):
             aloc = base_params[i]
             rloc = base_params[i+self.num_classes]
-            params_mat[i] = np.random.truncnorm(-aloc/self.param_scale, (1-aloc)/self.param_scale, aloc, self.param_scale, self.num_particles-1)
-            params_mat[i+self.num_classes] = np.random.truncnorm(-rloc/self.param_scale/2, (10-rloc)/self.param_scale/2, rloc, 2*self.param_scale, self.num_particles-1)
+            params_mat[i] = np.random.truncnorm(-aloc/self.alpha_scale, (1-aloc)/self.alpha_scale, aloc, self.alpha_scale, self.num_particles-1)
+            params_mat[i+self.num_classes] = np.random.truncnorm(-rloc/self.gamma_scale/2, (10-rloc)/self.gamma_scale/2, rloc, 2*self.gamma_scale, self.num_particles-1)
         
         # set params in dict
         params = [{'alpha': self.global_solution[:self.num_classes], 'gamma': self.global_solution[self.num_classes:]}]

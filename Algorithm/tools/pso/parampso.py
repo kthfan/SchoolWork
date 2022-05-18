@@ -62,7 +62,7 @@ class HyperParamPSO:
             
             model.compile(optimizer=optimizer, 
                           loss=model_template.loss,
-                          metrics=model_template.metrics,
+                          metrics=model_template.compiled_metrics._metrics,
                             **kwds)
         return model
             

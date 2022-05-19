@@ -246,7 +246,7 @@ class HyperParamPSO:
             best_index = np.argmax(self.particles.best_fitness, axis=0)[0]
             self.global_solution = self.particles.global_solution
             best_param = self.matrix_to_param(np.expand_dims(self.global_solution, 0))[0]
-            best_model = self.model_list[best_index]
+            self.best_model = self.model_list[best_index]
             # on_global_change
             
             self.set_model_param(best_model, best_param)

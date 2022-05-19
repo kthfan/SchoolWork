@@ -4,7 +4,7 @@ from tqdm import tqdm
 __all__ = ['PSOSolver', 'PSOParticles']
 
 class PSOSolver:
-    def __init__(self, global_tend=0.4, phi=4.1, fitness_func=None):
+    def __init__(self, global_tend=0.4, phi=4.1, fitness_func=None, metrics=[]):
         if not isinstance(global_tend, (tuple, list)):
             global_tend = [global_tend, 1-global_tend]
 
@@ -17,6 +17,7 @@ class PSOSolver:
         # https://ieeexplore.ieee.org/document/870279
         self.K = 2 / np.abs(2-phi-(phi**2-4*phi)**0.5)
         self.fitness_func = fitness_func
+        self.metrics = metrics
     def fit(self, particles, max_iter=1000, tol=1e-6, patient=0, stop_condition=None, verbose=1):
         ## setting config
         if isinstance(particles, np.ndarray):
@@ -27,7 +28,7 @@ class PSOSolver:
             pbar = tqdm(total=max_iter)
             pbar.set_description("PSO")
         
-        history = {'fitness': [], 'solution':[], 'max_velocity':[], 'avg_velocity':[]}
+        history = {'fitness': [], 'solution':[], 'max_velocity':[], 'avg_velocity':[], **dict((fn.__name__, []) for fn in self.metrics)}
         patient_count = 0
         for current_iter in range(max_iter):
             history['fitness'].append(particles.global_fitness[0])
@@ -38,13 +39,21 @@ class PSOSolver:
             velocity_scale = (particles.velocities**2).sum(axis=1)**0.5
             history['max_velocity'].append(velocity_scale.max())
             history['avg_velocity'].append(velocity_scale.mean())
+            
+            # record metrics
+            metrics_dict = dict()
+            for fn in self.metrics:
+                val = fn(particles.global_solution)
+                metrics_dict[fn.__name__] = val
+                history[fn.__name__].append(val)
 
             # show progress
             if verbose:
                 pbar.update(1)
                 pbar.set_postfix(fitness=particles.global_fitness[0],
                         max_velocity=velocity_scale.max(),
-                        avg_velocity=velocity_scale.mean())
+                        avg_velocity=velocity_scale.mean(),
+                        **metrics_dict)
             if stop_condition is not None and stop_condition(current_iter, particles):
                 break
             if velocity_scale.max() < tol:

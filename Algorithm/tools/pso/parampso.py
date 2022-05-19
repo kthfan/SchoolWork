@@ -70,6 +70,7 @@ class HyperParamPSO:
         if metrics is None:
             metrics = ['accuracy']
         self.fitness = fitness
+        self.metrics = metrics
         
         for model in self.model_list:
             if as_model_template:
@@ -103,7 +104,22 @@ class HyperParamPSO:
         # Variables for refresh weights
         restore_model = None
         if refresh_weights: restore_model = self._copy_model(self.best_model, set_weight=True, compile=True)
-        
+        # Variables for metrics
+        metrics = []
+        for fn in self.metrics:
+            def eval_model(matrix):
+                # split val_ds into x, y
+                val_x_ds = val_ds.map(lambda x, y: x)
+                val_y_ds = val_ds.map(lambda x, y: y)
+                val_y = val_y_ds.take(validation_steps).as_numpy_iterator()
+                val_y = np.concatenate(list(val_y), axis=0)
+
+                pred_y = self.best_model.predict(val_x_ds)
+                return float(fn(val_y, pred_y))
+            eval_model.__name__ = fn.__name__
+            metrics.append(eval_model)
+        self.pso_solver.metrics = metrics
+
         def train_single_model(model, param):
             # initialize model
             if refresh_weights:
@@ -144,7 +160,7 @@ class HyperParamPSO:
             return False
         
         # run first iteration
-        print('initial models...')
+        print('initialize models... (it might takes for a while)')
         particles.initialize_variables(fitness_func=train_models)
         best_index = np.argmax(self.particles.best_fitness, axis=0)[0]
         best_param = self.matrix_to_param(np.expand_dims(self.global_solution, 0))[0]

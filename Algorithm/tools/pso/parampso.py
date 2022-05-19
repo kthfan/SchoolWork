@@ -143,6 +143,14 @@ class HyperParamPSO:
                 train_ds, val_ds = k_fold_ds_list[current_k]
             return False
         
+        # run first iteration
+        print('initial models...')
+        particles.initialize_variables(fitness_func=train_models)
+        best_index = np.argmax(self.particles.best_fitness, axis=0)[0]
+        best_param = self.matrix_to_param(np.expand_dims(self.global_solution, 0))[0]
+        self.best_model = self._copy_model(self.model_list[best_index], self.best_model, set_weight=True, compile=True)
+
+        # start charging
         result = self.pso_solver.fit(particles, max_iter=pso_iter, tol=pso_tol, 
                         patient=pso_patient, stop_condition=each_iter, verbose=1)
         
@@ -152,7 +160,7 @@ class HyperParamPSO:
         history_list = {}
         with tqdm(total=sprint_iter) as pbar:
             for i in range(sprint_iter):
-                history = model.fit(train_ds, epochs=1, verbose=0)
+                history = model.fit(train_ds, epochs=1, verbose=0, **kwds)
                 pbar.update(1)
                 history = dict([(k, v[0]) for k, v in history.history.items()])
                 pbar.set_postfix(**history)
@@ -210,7 +218,7 @@ class HyperParamPSO:
         
         # record best model and best hyperparameters
         if self.best_model is None:
-            self.best_model = self._copy_model(self.model_template, set_weight=False, compile=False)
+            self.best_model = self._copy_model(self.model_template, set_weight=True, compile=True)
         if self.global_solution is None:
             self.global_solution = self.param_to_matrix(self.initialize_param())[0]
         
@@ -246,17 +254,18 @@ class HyperParamPSO:
             best_index = np.argmax(self.particles.best_fitness, axis=0)[0]
             self.global_solution = self.particles.global_solution
             best_param = self.matrix_to_param(np.expand_dims(self.global_solution, 0))[0]
-            self.best_model = self.model_list[best_index]
+            # if self.best_model.optimizer is None:
+            #     self.best_model = self._copy_model(self.model_list[best_index], self.best_model, set_weight=True, compile=True)
             # on_global_change
             
-            self.set_model_param(best_model, best_param)
+            self.set_model_param(self.best_model, best_param)
             
             print("Sprinting...")
             if k_fold is  None:
-                sprint_res = self.sprint(best_model, train_ds, sprint_iter, **kwds)
+                sprint_res = self.sprint(self.best_model, train_ds, sprint_iter, **kwds)
                 history['sprint'].append(sprint_res)
             else:
-                sprint_res = self.sprint(best_model, k_fold_ds, sprint_iter, **kwds)
+                sprint_res = self.sprint(self.best_model, k_fold_ds, sprint_iter, **kwds)
                 history['sprint'].append(sprint_res)
         
         return {'model': self.best_model,

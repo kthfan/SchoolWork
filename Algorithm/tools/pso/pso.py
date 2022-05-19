@@ -43,9 +43,10 @@ class PSOSolver:
             # record metrics
             metrics_dict = dict()
             for fn in self.metrics:
-                val = fn(particles.global_solution)
-                metrics_dict[fn.__name__] = val
+                val = float(fn(particles.global_solution))
                 history[fn.__name__].append(val)
+                metrics_dict[fn.__name__] = val
+                print(val)
 
             # show progress
             if verbose:
@@ -102,11 +103,13 @@ class PSOParticles:
             self.best_fitness = fitness
             
             # set best global solutions and fitness
-            _index = np.argmax(self.best_fitness)
-            self.global_solution = self.best_solutions[_index]
-            self.global_fitness = self.best_fitness[_index]
+            global_index = np.argmax(self.best_fitness)
+            self.global_solution = self.best_solutions[global_index].copy()
+            self.global_fitness = self.best_fitness[global_index].copy()
             
             self.is_initialized = True
+
+            self._last_global_index = global_index
     
     def update_solutions(self, solutions, fitness, update_velocities=True):
         # check boundary of solutions
@@ -124,11 +127,12 @@ class PSOParticles:
         
         # set best global solutions and fitness
         global_index = np.argmax(self.best_fitness)
-        _global_solution = self.best_solutions[global_index]
-        _global_fitness = self.best_fitness[global_index]
+        _global_solution = self.best_solutions[global_index].copy()
+        _global_fitness = self.best_fitness[global_index].copy()
         if not (global_index == self._last_global_index and\
             self.global_fitness == _global_fitness and\
             (_global_solution == self.best_solutions[global_index]).all()):
+
             if self.on_global_change is not None:
                 self.on_global_change(self,
                                       next_global_index=global_index,
@@ -140,7 +144,7 @@ class PSOParticles:
             self._last_global_index = global_index
         
         self.current_solutions = solutions
-    
+        
 # if __name__ == '__main__':
     # def gen_func(coeff):
     #     a, b, c = [c for c in np.split(coeff, 3, axis=1)]

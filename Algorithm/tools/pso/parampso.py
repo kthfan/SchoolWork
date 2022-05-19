@@ -106,18 +106,20 @@ class HyperParamPSO:
         if refresh_weights: restore_model = self._copy_model(self.best_model, set_weight=True, compile=True)
         # Variables for metrics
         metrics = []
-        for fn in self.metrics:
-            def eval_model(matrix):
+        def gen_metric(self_obj, fn):
+            def func(matrix):
                 # split val_ds into x, y
                 val_x_ds = val_ds.map(lambda x, y: x)
                 val_y_ds = val_ds.map(lambda x, y: y)
                 val_y = val_y_ds.take(validation_steps).as_numpy_iterator()
                 val_y = np.concatenate(list(val_y), axis=0)
 
-                pred_y = self.best_model.predict(val_x_ds)
+                pred_y = self_obj.best_model.predict(val_x_ds)
                 return float(fn(val_y, pred_y))
-            eval_model.__name__ = fn.__name__
-            metrics.append(eval_model)
+            func.__name__ = fn.__name__
+            return func
+        for fn in self.metrics:
+            metrics.append(gen_metric(self, fn))
         self.pso_solver.metrics = metrics
 
         def train_single_model(model, param):
@@ -238,10 +240,10 @@ class HyperParamPSO:
         if self.global_solution is None:
             self.global_solution = self.param_to_matrix(self.initialize_param())[0]
         
-        # save the best model
+        # save the best model (PSOParticles.on_global_change)
         def on_global_change(particles, next_global_index, **kwds1):
             self._copy_model(self.model_list[next_global_index], self.best_model, set_weight=True, compile=True)
-        self.pso_solver.on_global_change = on_global_change
+        
         
         history = {'charge': [], 'sprint': []}
         ############################ start training ###########################
@@ -258,7 +260,8 @@ class HyperParamPSO:
             self.particles = PSOParticles(random_init_param, 
                                 lower_bound=self.particles_boundary[0], 
                                 upper_bound=self.particles_boundary[1], 
-                                fitness_func=None)
+                                fitness_func=None,
+                                on_global_change=on_global_change)
             
             print("Charging...")
             charge_res = self.charge(train_ds, val_ds, validation_steps, particles=self.particles, pso_workers=pso_workers,

@@ -39,7 +39,7 @@ class HyperParamPSO:
         
         self.model_list = [self._copy_model(self.model_template, set_weight=False, compile=False) for i in range(self.num_particles)]
         self.particles = None
-        self.pso_solver = PSOSolver()
+        self.pso_solver = PSOSolver(global_tend=[0.5, 0.9])
         self.best_model = None
         self.global_solution = None
         self.particles_boundary = [None, None]
@@ -142,7 +142,7 @@ class HyperParamPSO:
                 current_k = (current_k + 1) % k_fold
                 train_ds, val_ds = k_fold_ds_list[current_k]
             return False
-            
+        
         result = self.pso_solver.fit(particles, max_iter=pso_iter, tol=pso_tol, 
                         patient=pso_patient, stop_condition=each_iter, verbose=1)
         

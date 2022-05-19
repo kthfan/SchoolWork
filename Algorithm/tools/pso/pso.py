@@ -5,11 +5,14 @@ __all__ = ['PSOSolver', 'PSOParticles']
 
 class PSOSolver:
     def __init__(self, global_tend=0.4, phi=4.1, fitness_func=None):
-        
+        if not isinstance(global_tend, (tuple, list)):
+            global_tend = [global_tend, 1-global_tend]
+
         self.global_tend = global_tend
         self.phi = phi
-        self.c1 = self.phi*(1-self.global_tend)
-        self.c2 = self.phi*self.global_tend
+        
+        self.c1 = self.phi*(1-self.global_tend[0])
+        self.c2 = self.phi*self.global_tend[0]
         
         # https://ieeexplore.ieee.org/document/870279
         self.K = 2 / np.abs(2-phi-(phi**2-4*phi)**0.5)
@@ -27,8 +30,8 @@ class PSOSolver:
         history = {'fitness': [], 'solution':[], 'max_velocity':[], 'avg_velocity':[]}
         patient_count = 0
         for current_iter in range(max_iter):
-            history['fitness'].append(particles.global_fitness)
-            history['solution'].append(particles.global_solution)
+            history['fitness'].append(particles.global_fitness[0])
+            history['solution'].append(particles.global_solution.copy())
 
             self._single_iteration(particles, current_iter, max_iter)
 
@@ -53,8 +56,8 @@ class PSOSolver:
             
     def _single_iteration(self, particles, current_iter, max_iter):
         # change coef durning iterations
-        c1 = self.c1 + (self.c2 - self.c1)*current_iter / max_iter
-        c2 = self.c2 + (self.c1 - self.c2)*current_iter / max_iter
+        c1 = self.c1 + (self.phi*(1-self.global_tend[1]) - self.c1)*current_iter / max_iter
+        c2 = self.c2 + (self.phi*self.global_tend[1] - self.c2)*current_iter / max_iter
 #         w = 1 + (0.4/self.K - 1)*current_iter / max_iter
         w = 1
         next_velocities = self.K*(w*particles.velocities +\

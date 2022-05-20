@@ -46,7 +46,6 @@ class PSOSolver:
                 val = float(fn(particles.global_solution))
                 history[fn.__name__].append(val)
                 metrics_dict[fn.__name__] = val
-                print(val)
 
             # show progress
             if verbose:

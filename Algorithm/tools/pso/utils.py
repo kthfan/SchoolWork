@@ -112,7 +112,7 @@ class WeightedF1Score:
         n_cls = true_y.shape[1]
         pred_y = pred_y*self.threshold_weights
         pred_y = tf.reshape(tf.argmax(pred_y, axis=1), (-1, 1)) == tf.range(n_cls, dtype=tf.int64)
-        cm =  tf.cast(tf.transpose(tf.cast(true_y, tf.int32)) @ tf.cast(pred_y, np.int32), tf.float32)
+        cm =  tf.transpose(tf.cast(true_y, tf.float32)) @ tf.cast(pred_y, np.float32)
         pred_num = tf.reduce_sum(cm, axis=0)
         true_num = tf.reduce_sum(cm, axis=1)
         recall = tf.linalg.diag_part(cm) / true_num
@@ -160,7 +160,7 @@ class CohenKappa:
         n_cls = true_y.shape[1]
         pred_y = pred_y*self.threshold_weights
         pred_y = tf.reshape(tf.argmax(pred_y, axis=1), (-1, 1)) == tf.range(n_cls, dtype=tf.int64)
-        cm =  tf.cast(tf.transpose(tf.cast(true_y, tf.int32)) @ tf.cast(pred_y, np.int32), tf.float32)
+        cm =  tf.transpose(tf.cast(true_y, tf.float32)) @ tf.cast(pred_y, np.float32)
         total = tf.reduce_sum(cm)
         pred_num = tf.reduce_sum(cm, axis=0)
         true_num = tf.reduce_sum(cm, axis=1)
@@ -173,5 +173,3 @@ class CohenKappa:
             return self.tensorflow_call(true_y, pred_y)
         else:
             return self.numpy_call(true_y, pred_y)
-
-

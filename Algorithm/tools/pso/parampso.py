@@ -50,15 +50,21 @@ class HyperParamPSO:
         
         if set_weight: 
             model.set_weights(model_template.get_weights())
-            
+        
+        @tf.function
+        def copy_optimizer_weights():
+            grad_vars = model.trainable_weights
+            zero_grads = [tf.zeros_like(w) for w in grad_vars]
+            optimizer.apply_gradients(zip(zero_grads, grad_vars))
         if model_template.optimizer is not None and compile:
-            optimizer = type(model_template.optimizer)(**model_template.optimizer.get_config())
-            # set weight of optimizer
-            if len(model_template.optimizer.get_weights()) != 0:
-                grad_vars = model.trainable_weights
-                zero_grads = [tf.zeros_like(w) for w in grad_vars]
-                optimizer.apply_gradients(zip(zero_grads, grad_vars))
-                optimizer.set_weights(model_template.optimizer.get_weights())
+            # while copying optimizer, strategy is neccessary
+            strategy = tf.distribute.get_strategy()
+            with strategy.scope():
+                optimizer = type(model_template.optimizer)(**model_template.optimizer.get_config())
+                # set weight of optimizer
+                if len(model_template.optimizer.get_weights()) != 0:
+                    strategy.run(copy_optimizer_weights)
+                    optimizer.set_weights(model_template.optimizer.get_weights())
             
             model.compile(optimizer=optimizer, 
                           loss=model_template.loss,

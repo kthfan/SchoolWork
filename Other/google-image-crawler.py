@@ -175,10 +175,14 @@ class ImageCrawler:
             b, ext = self.download(self.saved_url[i])
             self.save(path, str(counter), ext, b)
             counter += 1
+    
+    def skip(self, n=0):
+        while len(self.image_queue) < n:
+            self.fetch()
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        self.image_queue = deque()
         
 if __name__ == '__main__':
-
-    argumentList = sys.argv[1:]
      
     # Initialize parser
     parser = argparse.ArgumentParser()
@@ -188,9 +192,13 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--directory", help = "Directory for downloaded images.", default="./")
     parser.add_argument("-n", "--number", help = "Number of image need to crawl.", type=int, default=10)
     parser.add_argument("-c", "--counter", help = "First sequence NO. of file name.", type=int, default=1)
+    parser.add_argument("-S", "--skip", help = "Skip first n images.", type=int, default=0)
     args = parser.parse_args()
     
     
     crawler = ImageCrawler(strategy=args.strategy, timeout=args.timeout)
-    crawler.query(args.keyword)
+    crawler.query(args.keyword) # enter keyword
+    if args.skip > 0:
+        crawler.skip(args.skip)  # start from args.skip -st image
+    # starting crawing
     crawler.crawl(n=args.number, save_path=args.directory, counter=args.counter)

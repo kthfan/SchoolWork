@@ -22,13 +22,15 @@ class ImageCrawler:
         self.driver.get('https://www.google.com.tw/imghp')
         self.width_thresh = width_thresh
         self.downloaded_images = set()
-        self.google_image_regex = r'https://www\.google\.com\.tw/imgres\?imgurl='
-        self.google_image_regex = re.compile(self.google_image_regex)
+        self.downloaded_urls = set()
+        self.google_image_regex = re.compile(r'https://www\.google\.com\.tw/imgres\?imgurl=')
+        self.base64_regex = re.compile(r'data:')
+        self.google_crawlable_regex = re.compile(r"https://encrypted-tbn0.gstatic.com/images")
         self.saved_url = []
         self.timeout = timeout
         self.strategy = strategy.upper()
         self.image_queue = deque()
-        self.base64_regex = re.compile(r'data:')
+        
         self.headers = {
             "Accept": "image/webp,*/*",
             "Accept-Encoding": "gzip, deflate, br",
@@ -84,16 +86,43 @@ class ImageCrawler:
             if not self.is_elem_exists(elem):
                 return False
             elem = self.get_parent_arch(elem)
+            href = elem.get_attribute("href")
+            if href is not None and self.google_crawlable_regex.match(href) is None:
+                return False
             elem.click()
             return True
         except Exception as e:
             print(e)
             return False
-    
+    def scroll_more(self):
+        input_elem = self.driver.find_elements(By.TAG_NAME, 'input')
+        input_elem = np.array(input_elem, dtype=object)
+
+        is_bn = [elem.get_attribute('type')=='button' for elem in input_elem]
+        is_exists = [self.is_elem_exists(elem) for elem in input_elem]
+        is_bn = np.array(is_bn)
+        is_exists = np.array(is_exists)
+        input_elem = input_elem[is_bn & is_exists]
+
+        elem_width = [elem.size['width'] for elem in input_elem]
+        is_large = [w>100 for w in elem_width]
+        is_large = np.array(is_large)
+        elem_width = np.array(elem_width)
+
+        input_elem = input_elem[is_large]
+        elem_width = elem_width[is_large]
+        ord = np.argsort(elem_width)
+        input_elem = input_elem[ord]
+        
+        if len(input_elem):
+            input_elem[-1].click()
+        
+        self.fetch()
+        self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+
     def next(self, save_path=None, fn=None):
         if len(self.image_queue) == 0:
-            self.fetch()
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            self.scroll_more()
         img = self.take_image()
         if self.click_into(img):
             added_imgs = self.fetch()
@@ -104,10 +133,12 @@ class ImageCrawler:
                     self.downloaded_images.remove(img)
                     added_imgs.remove(img)
                     url = img.get_attribute("src")
-                    self.saved_url.append(url)
-                    if save_path is not None:
-                        b, ext = self.download(url)
-                        self.save(save_path, fn, ext, b)
+                    if url not in self.downloaded_urls:
+                        self.downloaded_urls.add(url)
+                        self.saved_url.append(url)
+                        if save_path is not None:
+                            b, ext = self.download(url)
+                            self.save(save_path, fn, ext, b)
                     if self.strategy == 'LIFO':
                         added_imgs += self.fetch()
                         for i in range(len(added_imgs)-1):
@@ -178,19 +209,18 @@ class ImageCrawler:
     
     def skip(self, n=0):
         while len(self.image_queue) < n:
-            self.fetch()
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            self.scroll_more()
         self.image_queue = deque()
         
 if __name__ == '__main__':
      
     # Initialize parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("-s", "--strategy", help = "FIFO search by keyword, LIFO search via related images.", default="FIFO")
     parser.add_argument("-k", "--keyword", help = "Searching  keyword.", default="")
-    parser.add_argument("-t", "--timeout", help = "Max second waiting forimage download.", type=float)
     parser.add_argument("-d", "--directory", help = "Directory for downloaded images.", default="./")
     parser.add_argument("-n", "--number", help = "Number of image need to crawl.", type=int, default=10)
+    parser.add_argument("-s", "--strategy", help = "FIFO search by keyword, LIFO search via related images.", default="FIFO")
+    parser.add_argument("-t", "--timeout", help = "Max second waiting for image download.", type=float)
     parser.add_argument("-c", "--counter", help = "First sequence NO. of file name.", type=int, default=1)
     parser.add_argument("-S", "--skip", help = "Skip first n images.", type=int, default=0)
     args = parser.parse_args()

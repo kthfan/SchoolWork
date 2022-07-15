@@ -2,11 +2,15 @@ import json
 import cv2
 import numpy as np
 import os
-# from PIL import Image
-# import base64
-# import io
 
 def read_mask_from_labelme(path):
+    '''Read labelme .json file and transform into masks
+    # Args
+        path: Path of the .json file.
+    # Returns
+        masks: Masks in json file
+        labels: Corresponding labels of masks.
+    '''
     with open(path, "r",encoding="utf-8") as f: # load json
         obj = json.load(f)
     shapes = obj['shapes']
@@ -23,51 +27,54 @@ def read_mask_from_labelme(path):
         masks[i] = mask
     return masks, labels
 
-def subimages_from_labelme(json_dir, img_dir, window_size=(224, 224), stride_size=(112, 112)):
-    json_fn = os.listdir(json_dir)
-    json_paths = [os.path.join(json_dir, fn) for fn in json_fn]
-    img_paths = [os.path.join(img_dir, fn) for fn in txt_fn]
-    img_paths = [os.path.splitext(path)[0] for path in img_paths] # exclude extension
-    ret = []
-    for json_path, img_path in zip(json_dir, img_paths):
-        # check image ext type
-        if os.path.isfile(img_path+".jpg"):
-            img_path = img_path+".jpg"
-        elif os.path.isfile(img_path+".png"):
-            img_path = img_path+".png"
-        img = cv2.imdecode(np.fromfile(img_path, dtype=np.uint8),-1) # read image
-        masks, str_labels = read_mask_from_labelme(json_path)
+def subimages_from_labelme(json_path, img_path, window_size=(224, 224), stride_size=(112, 112)):
+    '''Read json file and image, then give the subimages and corresponding label.
+    # Args
+        json_path: Path of json file.
+        img_path: Path of image.
+        window_size: Size (height, width) of subimages.
+        stride_size: Stride while performing sliding window.
+    # Returns
+        labeled_subimgs: dict(), Subimages(values) and corresponding label(keys).
+    '''
+    
+    # check image extension type
+    if os.path.isfile(img_path+".jpg"):
+        img_path = img_path+".jpg"
+    elif os.path.isfile(img_path+".png"):
+        img_path = img_path+".png"
+    img = cv2.imdecode(np.fromfile(img_path, dtype=np.uint8),-1) # read image
+    masks, str_labels = read_mask_from_labelme(json_path)
         
-        # find number of class and encode them into integer
-        cls_name, clss, labels = np.unique(str_labels, return_index=True, return_inverse=True)
-        one_masks = np.zeros((len(clss)+1, *masks.shape[1:]), dtype=bool) # semantics mask of classes
-        for i in range(len(labels)):
-            one_masks[labels[i]] |= masks[i]
-        one_masks[-1] = ~one_masks.any(axis=0) # set background mask
+    # find number of class and encode them into integer
+    cls_name, clss, labels = np.unique(str_labels, return_index=True, return_inverse=True)
+    one_masks = np.zeros((len(clss)+1, *masks.shape[1:]), dtype=bool) # semantics mask of classes
+    for i in range(len(labels)):
+        one_masks[labels[i]] |= masks[i]
+    one_masks[-1] = ~one_masks.any(axis=0) # set background mask
         
-        one_masks = generate_sliding_windows(one_masks, window_size=window_size, stride_size=stride_size, axis=(1, 2))
-        subimgs = generate_sliding_windows(img, window_size=window_size, stride_size=stride_size)
-        one_labels = one_masks.any(axis=(3, 4)) # if any pixel belongs to class, label it to that class
+    one_masks = generate_sliding_windows(one_masks, window_size=window_size, stride_size=stride_size, axis=(1, 2))
+    subimgs = generate_sliding_windows(img, window_size=window_size, stride_size=stride_size)
+    one_labels = one_masks.any(axis=(3, 4)) # if any pixel belongs to class, label it to that class
         
-        # flatten height, width -> (n_class, w*h)
-        one_labels = one_labels.reshape((one_labels.shape[0], -1))
-        # flatten height, width -> (w*h, window_h, window_w, n_channel)
-        subimgs = subimgs.reshape((subimgs.shape[0]*subimgs.shape[1], *windows_size, subimgs.shape[-1]))
+    # flatten height, width -> (n_class, w*h)
+    one_labels = one_labels.reshape((one_labels.shape[0], -1))
+    # flatten height, width -> (w*h, window_h, window_w, n_channel)
+    subimgs = subimgs.reshape((subimgs.shape[0]*subimgs.shape[1], *windows_size, subimgs.shape[-1]))
         
-        cls_name = (*cls_name, "background")
-        labeled_subimgs = dict()
-        # foreach class
-        for i in range(len(one_labels)):
-            labeled_subimgs[cls_name[i]] = subimgs[one_labels[i]]
-        ret.append(labeled_subimgs)
-    return ret
+    cls_name = (*cls_name, "background")
+    labeled_subimgs = dict()
+    # foreach class
+    for i in range(len(one_labels)):
+        labeled_subimgs[cls_name[i]] = subimgs[one_labels[i]]
+    return labeled_subimgs
         
 
 def labelme2yolofmt(json_dir, output_dir):
-    '''Transform labelme format into yolo bound box format
+    '''Transform labelme format into yolo bounding box format
     # Args
-        json_dir: The directory include labelme format .json file.
-        output_dir: The directory that yolo bound box format .txt file will be store.
+        json_dir: The directory including labelme format .json file.
+        output_dir: The directory that yolo bounding box format .txt file will be store.
     '''
     def read_rabelme(path):
         '''read json and transform into dict'''
@@ -94,61 +101,91 @@ def labelme2yolofmt(json_dir, output_dir):
         height = bottom - top
         return (left, top, width, height)
     
+    # check whether output_dir exists
     if not os.path.isdir(output_dir):
         os.mkdir(output_dir)
     
-    json_fn = os.listdir(json_dir)
-    json_paths = [os.path.join(json_dir, fn) for fn in json_fn]
-    polygons_list = [read_rabelme(path) for path in json_paths]
+    json_fn = os.listdir(json_dir) # find file name
+    json_paths = [os.path.join(json_dir, fn) for fn in json_fn] # file name to path
+    polygons_list = [read_rabelme(path) for path in json_paths] # read json and get polygons
     file_txt_list = []
+    
+    # foreach file
     for polygons, fn in zip(polygons_list, json_fn):
         counter = 0
         cls_lines = []
+        # foreach class
         for pts_list in polygons.values():
-            rects = [poly2rect(pts) for pts in pts_list]
-            lines = [[counter, *rect] for rect in rects]
+            rects = [poly2rect(pts) for pts in pts_list] # compute bounding box via polygon
+            lines = [[counter, *rect] for rect in rects] # add label of bounding box
             cls_lines += lines
             counter += 1
         
-        cls_lines = ["{} {:.6f} {:.6f} {:.6f} {:.6f}".format(*line) for line in cls_lines]  
-        cls_lines = "\n".join(cls_lines)
+        cls_lines = ["{} {:.6f} {:.6f} {:.6f} {:.6f}".format(*line) for line in cls_lines] # to text
+        cls_lines = "\n".join(cls_lines) # add line
         fn, _ = os.path.splitext(fn)
         
+        # write .txt
         with open(os.path.join(output_dir, fn) + ".txt", "w",encoding="utf-8") as f:
             f.write(cls_lines)
         
 def read_yolofmt(txt_path):
+    '''Read bounding box in yolo format .txt file.
+    # Args
+        txt_path: Path of txt file.
+    # Returns
+        ret: Labels of bounding boxes (key) and bounding boxes (value)
+    '''
+    
+    # Read txt file 
     with open(txt_path, "r",encoding="utf-8") as f:
         rects = f.read().split("\n")
+    
+    # Text to float
     rects = [np.array(rect.split(" "), dtype=str).astype(np.float32) for rect in rects]
     rects = np.stack(rects, axis=0)
-    label = rects[:, 0]
-    rects = rects[:, 1:]
-    n_cls, order = np.unique(label, return_inverse=True)
+    
+    label = rects[:, 0] # read label 
+    rects = rects[:, 1:] # read rect
+    n_cls, order = np.unique(label, return_inverse=True) # number of classes
     ret = dict()
+    # foreach class
     for i, c in enumerate(n_cls):
-        ret[int(c)] = rects[order==i]
+        ret[int(c)] = rects[order==i] # bounding boxes rects[order==i] belongs to label c
     return ret
     
 def crop_by_yolofmt(txt_path, img_path, to_rect=True):
+    '''Crop image into subimages by bounding boxes.
+    # Args
+        txt_path: Path of yolo format bounding boxes.
+        img_path: Path of image.
+        to_rect:  Crop subimages in rectangle shape.
+    # Returns
+        ret: dict(). Cropped subimages (value) and corresponding label (key). 
+    '''
     ret = {}
-    rects_list = read_yolofmt(txt_path)
-    img = cv2.imdecode(np.fromfile(img_path, dtype=np.uint8),-1)
+    rects_list = read_yolofmt(txt_path) # read bounding boxes
+    img = cv2.imdecode(np.fromfile(img_path, dtype=np.uint8),-1) # read image
     size = img.shape[0:2]
+    
+    # foreach classes
     for label, rects in rects_list.items():
-        sub_imgs = []
+        # compute positions of left, right, top ,bottom
         lefts = (rects[:, 0]*size[1]).astype(np.int32)
         tops = (rects[:, 1]*size[0]).astype(np.int32)
         widths = (rects[:, 2]*size[1]).astype(np.int32)
         heights = (rects[:, 3]*size[0]).astype(np.int32)
         rights = widths + lefts
         bottoms = heights + tops
-        if to_rect:
+        if to_rect: # if cropping into rect
+            # ensuring width == height
             sw = widths -  heights
             tops[sw>0] -= sw[sw>0]//2
             bottoms[sw>0] += sw[sw>0]//2 + (sw[sw>0]%2)
             lefts[sw<0] -= -sw[sw<0]//2
             rights[sw<0] += -sw[sw<0]//2 + (-sw[sw<0]%2)
+            
+            # ensuring 0 < widths <= size[1] and 0 < heights <= size[0]
             bo = bottoms - size[0]
             ro = rights - size[1]
             tops[bo>0] -= bo[bo>0]
@@ -160,34 +197,57 @@ def crop_by_yolofmt(txt_path, img_path, to_rect=True):
             bottoms[bo>0] = size[0]
             rights[ro>0] = size[1]
             
+        sub_imgs = []
+        # foreach bounding box
         for l, t, r, b in zip(lefts, tops, rights, bottoms):
             sub_imgs.append(img[t:b, l:r])
         ret[label] = sub_imgs
     return ret
             
 def save_cropped_by_yolofmt(txt_dir, img_dir, output_dir):
-    if not os.path.isdir(output_dir):
+    '''Read yolo bounding boxes .txt and images, then save cropped subimages.
+    # Args
+        txt_dir: The directory including bounding boxes .txt file.
+        img_dir: The directory including images
+        output_dir: The directory that cropped subimages will be store.
+    '''
+    if not os.path.isdir(output_dir): # check if path exists
         os.mkdir(output_dir)
         
-    txt_fn = os.listdir(txt_dir)
-    txt_paths = [os.path.join(txt_dir, fn) for fn in txt_fn]
-    img_paths = [os.path.join(img_dir, fn) for fn in txt_fn]
-    img_paths = [os.path.splitext(path)[0] for path in img_paths]
+    txt_fn = os.listdir(txt_dir) # get .txt file name
+    txt_paths = [os.path.join(txt_dir, fn) for fn in txt_fn] # file name to txt path
+    img_paths = [os.path.join(img_dir, fn) for fn in txt_fn] # file name to image path
+    img_paths = [os.path.splitext(path)[0] for path in img_paths] # exclude extension
     cls_rect = []
+    # foreach file
     for txt_path, img_path, fn in zip(txt_paths, img_paths, txt_fn):
+        # check image extension type
         if os.path.isfile(img_path+".jpg"):
             img_path = img_path+".jpg"
         elif os.path.isfile(img_path+".png"):
             img_path = img_path+".png"
         
         sub_imgs_dict = crop_by_yolofmt(txt_path, img_path) 
+        # foreach class
         for label, sub_imgs in sub_imgs_dict.items():
+            # foreach subimage
             for i, sub_img in enumerate(sub_imgs):
-                fn = os.path.splitext(fn)[0]
+                fn = os.path.splitext(fn)[0] # only filename
                 path = os.path.join(output_dir, fn)
+                # save subimage, "path-label-seq.jpg"
                 cv2.imencode('.jpg', sub_img, [cv2.IMWRITE_JPEG_QUALITY, 70])[1].tofile('{}-{}-{}.jpg'.format(path, label, i))
 
 def generate_sliding_windows(I, window_size=3, stride_size=1, axis=None, copy=True):
+    '''Generate sliding windows
+    # Args
+        I: Input image
+        window_size: Size of windows
+        stride_size: Size of stride
+        axis: Sliding along axes.
+        copy: If False, sliding windows are read-only.
+    # Returns
+        windows: Returned sliding windows with shape (n_y, n_x, window_size[0], window_size[1], n_channel).
+    '''
     if axis is None:
         axis = (0, 1)
     if isinstance(window_size, int):
@@ -197,11 +257,8 @@ def generate_sliding_windows(I, window_size=3, stride_size=1, axis=None, copy=Tr
         windows = windows.copy()
     if isinstance(stride_size, int):
         stride_size = (stride_size, stride_size)
-    return windows[::stride_size[0], ::stride_size[1]]
-  
-  
-  
-  
-  
+    windows = [::stride_size[0], ::stride_size[1]]
+    return windows
+
 
     

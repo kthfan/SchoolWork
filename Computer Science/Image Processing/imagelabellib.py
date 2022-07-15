@@ -27,6 +27,42 @@ def read_mask_from_labelme(path):
         masks[i] = mask
     return masks, labels
 
+def save_cropped_subimages_from_labelme(json_dir, img_dir, output_dir, window_size=(224, 224), stride_size=(112, 112)):
+    
+    # check whether output_dir exists
+    if not os.path.isdir(output_dir):
+        os.mkdir(output_dir)
+    
+    
+    json_fn = os.listdir(json_dir) # get .txt file name
+    json_paths = [os.path.join(json_dir, fn) for fn in json_fn] # file name to json path
+    img_paths = [os.path.join(img_dir, fn) for fn in json_fn] # file name to image path
+    img_paths = [os.path.splitext(path)[0] for path in img_paths] # exclude extension
+    
+    # foreach file
+    for img_path, json_path, fn in zip(img_paths, json_paths, json_fn):
+        # check image extension type
+        if os.path.isfile(img_path+".jpg"):
+            img_path = img_path+".jpg"
+        elif os.path.isfile(img_path+".png"):
+            img_path = img_path+".png"
+            
+        fn = os.path.splitext(fn)[0] # only filename
+            
+        labeled_subimgs = subimages_from_labelme(json_path, img_path, window_size, stride_size)
+        # foreach class
+        for label, subimgs in labeled_subimgs.items():
+            class_dir = os.path.join(output_dir, str(label))
+            # check whether output_dir exists
+            if not os.path.isdir(class_dir):
+                os.mkdir(class_dir)
+                
+            # foreach image
+            for i in range(subimgs.shape[0]):
+                # save subimage, "dir/label/fn-i.jpg"
+                path = os.path.join(class_dir, "{}-{}.jpg".format(fn, i))
+                cv2.imencode('.jpg', subimgs[i], [cv2.IMWRITE_JPEG_QUALITY, 70])[1].tofile(path)
+        
 def subimages_from_labelme(json_path, img_path, window_size=(224, 224), stride_size=(112, 112)):
     '''Read json file and image, then give the subimages and corresponding label.
     # Args
@@ -38,11 +74,6 @@ def subimages_from_labelme(json_path, img_path, window_size=(224, 224), stride_s
         labeled_subimgs: dict(), Subimages(values) and corresponding label(keys).
     '''
     
-    # check image extension type
-    if os.path.isfile(img_path+".jpg"):
-        img_path = img_path+".jpg"
-    elif os.path.isfile(img_path+".png"):
-        img_path = img_path+".png"
     img = cv2.imdecode(np.fromfile(img_path, dtype=np.uint8),-1) # read image
     masks, str_labels = read_mask_from_labelme(json_path)
     masks = masks.astype(bool)
@@ -75,7 +106,7 @@ def subimages_from_labelme(json_path, img_path, window_size=(224, 224), stride_s
         
     cls_name = (*cls_name, "background")
     labeled_subimgs = dict()
-    print(subimgs.shape)
+    
     # foreach class
     for i in range(len(one_labels)):
         labeled_subimgs[cls_name[i]] = subimgs[one_labels[i]]
@@ -215,8 +246,8 @@ def crop_by_yolofmt(txt_path, img_path, to_rect=True):
             sub_imgs.append(img[t:b, l:r])
         ret[label] = sub_imgs
     return ret
-            
-def save_cropped_by_yolofmt(txt_dir, img_dir, output_dir):
+
+def save_cropped_by_yolofmt(txt_dir, img_dir, output_dir, to_rect=True):
     '''Read yolo bounding boxes .txt and images, then save cropped subimages.
     # Args
         txt_dir: The directory including bounding boxes .txt file.
@@ -238,16 +269,17 @@ def save_cropped_by_yolofmt(txt_dir, img_dir, output_dir):
             img_path = img_path+".jpg"
         elif os.path.isfile(img_path+".png"):
             img_path = img_path+".png"
+            
+        fn = os.path.splitext(fn)[0] # only filename
         
-        sub_imgs_dict = crop_by_yolofmt(txt_path, img_path) 
+        sub_imgs_dict = crop_by_yolofmt(txt_path, img_path, to_rect=to_rect) 
         # foreach class
         for label, sub_imgs in sub_imgs_dict.items():
             # foreach subimage
             for i, sub_img in enumerate(sub_imgs):
-                fn = os.path.splitext(fn)[0] # only filename
-                path = os.path.join(output_dir, fn)
-                # save subimage, "path-label-seq.jpg"
-                cv2.imencode('.jpg', sub_img, [cv2.IMWRITE_JPEG_QUALITY, 70])[1].tofile('{}-{}-{}.jpg'.format(path, label, i))
+                # save subimage, "dir/fn-label-i.jpg"
+                path = os.path.join(output_dir, '{}-{}-{}.jpg'.format(fn, label, i))
+                cv2.imencode('.jpg', sub_img, [cv2.IMWRITE_JPEG_QUALITY, 70])[1].tofile(path)
 
 def generate_sliding_windows(I, window_size=3, stride_size=1, copy=True):
     '''Generate sliding windows
@@ -272,4 +304,22 @@ def generate_sliding_windows(I, window_size=3, stride_size=1, copy=True):
     
     return windows
 
+
+
+if __name__ == '__main__':
+    # read directory
+    main_dir = input()
+    to_rect = True
+    
+    # sub-directory
+    json_dir = os.path.join(main_dir, "json")
+    txt_dir = os.path.join(main_dir, "txt")
+    img_dir = os.path.join(main_dir, "原圖")
+    crop_dir = os.path.join(main_dir, "crop")
+    labeled_crop_dir = os.path.join(main_dir, "labeled crop")
+    
+    
+    labelme2yolofmt(json_dir, txt_dir) # create bounding boxex .txt files
+    save_cropped_by_yolofmt(txt_dir, img_dir, crop_dir, to_rect=to_rect) # create cropped cracked images
+    save_cropped_subimages_from_labelme(json_dir, img_dir, labeled_crop_dir) # create labeled images (cracked and non-cracked)
     

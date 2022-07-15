@@ -45,25 +45,37 @@ def subimages_from_labelme(json_path, img_path, window_size=(224, 224), stride_s
         img_path = img_path+".png"
     img = cv2.imdecode(np.fromfile(img_path, dtype=np.uint8),-1) # read image
     masks, str_labels = read_mask_from_labelme(json_path)
+    masks = masks.astype(bool)
         
     # find number of class and encode them into integer
     cls_name, clss, labels = np.unique(str_labels, return_index=True, return_inverse=True)
-    one_masks = np.zeros((len(clss)+1, *masks.shape[1:]), dtype=bool) # semantics mask of classes
+    
+    # semantics mask of classes
+    one_masks = np.zeros((len(clss)+1, *masks.shape[1:]), dtype=bool)
     for i in range(len(labels)):
         one_masks[labels[i]] |= masks[i]
     one_masks[-1] = ~one_masks.any(axis=0) # set background mask
-        
-    one_masks = generate_sliding_windows(one_masks, window_size=window_size, stride_size=stride_size, axis=(1, 2))
+    
+    one_masks = np.transpose(one_masks, (1, 2, 0)) # transpose class to channel
+    one_masks = generate_sliding_windows(one_masks, window_size=window_size, stride_size=stride_size)
+    one_masks = np.transpose(one_masks, (2, 0, 1, 3, 4)) # transpose (n_class, n_y, n_x, window_size[0], window_size[1])
+    
     subimgs = generate_sliding_windows(img, window_size=window_size, stride_size=stride_size)
-    one_labels = one_masks.any(axis=(3, 4)) # if any pixel belongs to class, label it to that class
-        
+    subimgs = np.transpose(subimgs, (0, 1, 3, 4, 2)) # transpose to (n_y, n_x, window_size[0], window_size[1], n_channel)
+    
+    # if any pixel belongs to class, label it to that class
+    one_labels = one_masks.any(axis=(3, 4))
+    one_labels[-1] = one_masks[-1].all(axis=(2, 3)) # background using all
+    
     # flatten height, width -> (n_class, w*h)
     one_labels = one_labels.reshape((one_labels.shape[0], -1))
     # flatten height, width -> (w*h, window_h, window_w, n_channel)
-    subimgs = subimgs.reshape((subimgs.shape[0]*subimgs.shape[1], *windows_size, subimgs.shape[-1]))
+    
+    subimgs = subimgs.reshape((subimgs.shape[0]*subimgs.shape[1], *window_size, subimgs.shape[-1]))
         
     cls_name = (*cls_name, "background")
     labeled_subimgs = dict()
+    print(subimgs.shape)
     # foreach class
     for i in range(len(one_labels)):
         labeled_subimgs[cls_name[i]] = subimgs[one_labels[i]]
@@ -237,28 +249,27 @@ def save_cropped_by_yolofmt(txt_dir, img_dir, output_dir):
                 # save subimage, "path-label-seq.jpg"
                 cv2.imencode('.jpg', sub_img, [cv2.IMWRITE_JPEG_QUALITY, 70])[1].tofile('{}-{}-{}.jpg'.format(path, label, i))
 
-def generate_sliding_windows(I, window_size=3, stride_size=1, axis=None, copy=True):
+def generate_sliding_windows(I, window_size=3, stride_size=1, copy=True):
     '''Generate sliding windows
     # Args
         I: Input image
         window_size: Size of windows
         stride_size: Size of stride
-        axis: Sliding along axes.
         copy: If False, sliding windows are read-only.
     # Returns
-        windows: Returned sliding windows with shape (n_y, n_x, window_size[0], window_size[1], n_channel).
+        windows: Returned sliding windows with shape (n_y, n_x, n_channel, window_size[0], window_size[1]).
     '''
-    if axis is None:
-        axis = (0, 1)
+    
     if isinstance(window_size, int):
         window_size = (window_size, window_size)
-    windows = np.lib.stride_tricks.sliding_window_view(I, window_size, axis=axis)
+    windows = np.lib.stride_tricks.sliding_window_view(I, window_size, axis=(0, 1))
+    windows = windows[::stride_size[0], ::stride_size[1]]
+    
     if copy:
         windows = windows.copy()
     if isinstance(stride_size, int):
         stride_size = (stride_size, stride_size)
-    windows = [::stride_size[0], ::stride_size[1]]
+    
     return windows
-
 
     
